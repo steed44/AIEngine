@@ -55,6 +55,14 @@ target_compile_definitions(aicore_tests PRIVATE
     AICORE_OPTIMIZER_EXPORTS
     AICORE_TRAINER_EXPORTS
 )
+if(Torch_FOUND)
+    target_compile_definitions(aicore_tests PRIVATE AICORE_HAS_LIBTORCH)
+endif()
 
 target_link_libraries(aicore_tests PRIVATE GTest::GTest GTest::Main ${OpenCV_LIBS})
+if(Torch_FOUND)
+    target_include_directories(aicore_tests PRIVATE "${TORCH_INSTALL_PREFIX}/include")
+    target_include_directories(aicore_tests PRIVATE "${TORCH_INSTALL_PREFIX}/include/torch/csrc/api/include")
+    target_link_libraries(aicore_tests PRIVATE ${TORCH_LIBRARIES})
+endif()
 add_test(NAME aicore_tests COMMAND aicore_tests)

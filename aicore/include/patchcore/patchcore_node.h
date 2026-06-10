@@ -7,6 +7,10 @@
 #include <string>
 #include <vector>
 
+#ifdef AICORE_HAS_LIBTORCH
+#include <torch/script.h>
+#endif
+
 namespace aicore {
 
 class PatchCoreNode : public IProcessor {
@@ -20,11 +24,15 @@ public:
 private:
     std::vector<PatchFeature> ForwardOpenCVDnn(const cv::Mat& blob);
     std::vector<PatchFeature> ForwardModelBackend(const cv::Mat& img);
+    std::vector<PatchFeature> ForwardLibTorch(const cv::Mat& img);
 
     std::string name_;
-    bool useOpenCVDnn_ = true;
+    std::string backboneType_ = "opencv_dnn";
     cv::dnn::Net net_;
     std::unique_ptr<IModelBackend> backend_;
+#ifdef AICORE_HAS_LIBTORCH
+    torch::jit::Module torchModule_;
+#endif
     MemoryBank memoryBank_;
     std::vector<std::string> outputLayerNames_;
     int inputSize_ = 224;

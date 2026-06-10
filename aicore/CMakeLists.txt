@@ -7,6 +7,13 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 find_package(OpenCV 4.7.0 REQUIRED)
 find_package(GTest REQUIRED)
 
+# LibTorch (PatchCore backbone, 可选)
+find_package(Torch QUIET)
+if(Torch_FOUND)
+    message(STATUS "Found LibTorch: ${TORCH_INSTALL_PREFIX}")
+    add_compile_definitions(AICORE_HAS_LIBTORCH)
+endif()
+
 # ──────────────────────────────────────────────
 # nlohmann-json (单头文件)
 # ──────────────────────────────────────────────
@@ -46,6 +53,9 @@ target_include_directories(aicore
     PRIVATE ${OpenCV_INCLUDE_DIRS}
 )
 target_link_libraries(aicore PRIVATE ${OpenCV_LIBS})
+if(Torch_FOUND)
+    target_link_libraries(aicore PRIVATE ${TORCH_LIBRARIES})
+endif()
 target_compile_definitions(aicore PRIVATE AICORE_EXPORTS)
 
 # ──────────────────────────────────────────────

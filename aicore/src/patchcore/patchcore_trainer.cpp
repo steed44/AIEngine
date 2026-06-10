@@ -6,6 +6,10 @@
 #include <sstream>
 #include <random>
 
+#ifdef AICORE_HAS_LIBTORCH
+#include <torch/script.h>
+#endif
+
 namespace aicore {
 
 static std::vector<std::string> SplitLayerNames(const std::string& s) {
@@ -59,7 +63,7 @@ Status PatchCoreTrainer::Train(IDataset& dataset, const std::string& modelPath,
                                 const PatchCoreTrainConfig& cfg) {
     if (cfg.backboneType == "model_backend") {
         return Status{StatusCode::ErrorInternal,
-            "patchcore: model_backend training not supported (stub), use opencv_dnn"};
+            "patchcore: model_backend training not supported (stub), use opencv_dnn or libtorch"};
     }
 
     if (dataset.Size() == 0) {
@@ -67,14 +71,71 @@ Status PatchCoreTrainer::Train(IDataset& dataset, const std::string& modelPath,
     }
 
     auto layerNames = SplitLayerNames(cfg.backboneLayers);
-    cv::dnn::Net net = cv::dnn::readNetFromONNX(modelPath);
-
     std::vector<PatchFeature> allFeatures;
 
-    for (size_t i = 0; i < dataset.Size(); i++) {
-        auto sample = dataset.Get(i);
-        auto feats = ExtractPatchFeatures(net, sample.image, cfg.inputSize, layerNames);
-        allFeatures.insert(allFeatures.end(), feats.begin(), feats.end());
+    if (cfg.backboneType == "libtorch") {
+#ifdef AICORE_HAS_LIBTORCH
+        torch::jit::Module module;
+        try {
+            module = torch::jit::load(modelPath);
+            module.eval();
+        } catch (const std::exception& e) {
+            return Status{StatusCode::ErrorModelLoad,
+                std::string("patchcore: failed to load torch model: ") + e.what()};
+        }
+        try {
+            module.to(torch::kCUDA);
+        } catch (...) {}
+
+        for (size_t i = 0; i < dataset.Size(); i++) {
+            auto sample = dataset.Get(i);
+            cv::Mat resized;
+            cv::resize(sample.image, resized, cv::Size(cfg.inputSize, cfg.inputSize));
+            cv::Mat rgb, floatImg;
+            cv::cvtColor(resized, rgb, cv::COLOR_BGR2RGB);
+            rgb.convertTo(floatImg, CV_32F, 1.0 / 255);
+
+            auto tensor = torch::from_blob(floatImg.data, {1, cfg.inputSize, cfg.inputSize, 3}, torch::kFloat);
+            tensor = tensor.permute({0, 3, 1, 2});
+            tensor[0][0] = tensor[0][0].sub_(0.485).div_(0.229);
+            tensor[0][1] = tensor[0][1].sub_(0.456).div_(0.224);
+            tensor[0][2] = tensor[0][2].sub_(0.406).div_(0.225);
+
+            torch::NoGradGuard noGrad;
+            auto output = module.forward({tensor});
+            auto tuple = output.toTuple();
+
+            for (int li = 0; li < static_cast<int>(tuple->elements().size()) && li < static_cast<int>(layerNames.size()); li++) {
+                auto feat = tuple->elements()[li].toTensor().cpu().contiguous();
+                int channels = feat.size(1);
+                int h = feat.size(2);
+                int w = feat.size(3);
+                float* data = feat.data_ptr<float>();
+                for (int row = 0; row < h; row++) {
+                    for (int col = 0; col < w; col++) {
+                        PatchFeature pf;
+                        pf.layerIdx = li;
+                        pf.patchRow = row;
+                        pf.patchCol = col;
+                        pf.features.resize(channels);
+                        for (int c = 0; c < channels; c++)
+                            pf.features[c] = data[(c * h + row) * w + col];
+                        allFeatures.push_back(pf);
+                    }
+                }
+            }
+        }
+#else
+        return Status{StatusCode::ErrorInternal,
+            "patchcore: libtorch not available, rebuild with AICORE_HAS_LIBTORCH"};
+#endif
+    } else {
+        cv::dnn::Net net = cv::dnn::readNetFromONNX(modelPath);
+        for (size_t i = 0; i < dataset.Size(); i++) {
+            auto sample = dataset.Get(i);
+            auto feats = ExtractPatchFeatures(net, sample.image, cfg.inputSize, layerNames);
+            allFeatures.insert(allFeatures.end(), feats.begin(), feats.end());
+        }
     }
 
     if (allFeatures.empty()) {

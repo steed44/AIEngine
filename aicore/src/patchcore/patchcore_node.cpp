@@ -23,8 +23,24 @@ Status PatchCoreNode::Init(const NodeConfig& config) {
     }
 
     auto bt = config.find("backbone");
-    if (bt != config.end() && bt->second == "model_backend") {
-        useOpenCVDnn_ = false;
+    if (bt != config.end()) {
+        backboneType_ = bt->second;
+    }
+
+    if (backboneType_ == "libtorch") {
+#ifdef AICORE_HAS_LIBTORCH
+        try {
+            torchModule_ = torch::jit::load(it->second);
+            torchModule_.eval();
+        } catch (const std::exception& e) {
+            return Status{StatusCode::ErrorModelLoad,
+                std::string("patchcore: failed to load torch model: ") + e.what()};
+        }
+#else
+        return Status{StatusCode::ErrorModelLoad,
+            "patchcore: libtorch backbone requires AICORE_HAS_LIBTORCH"};
+#endif
+    } else if (backboneType_ == "model_backend") {
         auto bk = config.find("backend_type");
         BackendType backendType = BackendType::kONNXRuntime;
         if (bk != config.end()) {
@@ -40,7 +56,6 @@ Status PatchCoreNode::Init(const NodeConfig& config) {
         auto s = backend_->Load(info);
         if (!s) return s;
     } else {
-        useOpenCVDnn_ = true;
         net_ = cv::dnn::readNetFromONNX(it->second);
     }
 
@@ -77,13 +92,19 @@ Status PatchCoreNode::Process(const std::vector<Frame>& inputs,
     }
 
     std::vector<PatchFeature> patchFeatures;
-    if (useOpenCVDnn_) {
+    if (backboneType_ == "libtorch") {
+#ifdef AICORE_HAS_LIBTORCH
+        patchFeatures = ForwardLibTorch(img);
+#else
+        return Status{StatusCode::ErrorModelInfer, "patchcore: libtorch not available"};
+#endif
+    } else if (backboneType_ == "model_backend") {
+        patchFeatures = ForwardModelBackend(img);
+    } else {
         cv::Mat blob = cv::dnn::blobFromImage(img, 1.0 / 255,
             cv::Size(inputSize_, inputSize_),
             cv::Scalar(0.485, 0.456, 0.406), true, false);
         patchFeatures = ForwardOpenCVDnn(blob);
-    } else {
-        patchFeatures = ForwardModelBackend(img);
     }
     if (patchFeatures.empty()) {
         return Status{StatusCode::ErrorModelInfer, "patchcore: backbone returned no features"};
@@ -181,5 +202,54 @@ std::vector<PatchFeature> PatchCoreNode::ForwardModelBackend(const cv::Mat& img)
     }
     return features;
 }
+
+#ifdef AICORE_HAS_LIBTORCH
+std::vector<PatchFeature> PatchCoreNode::ForwardLibTorch(const cv::Mat& img) {
+    cv::Mat resized;
+    cv::resize(img, resized, cv::Size(inputSize_, inputSize_));
+    cv::Mat rgb, floatImg;
+    cv::cvtColor(resized, rgb, cv::COLOR_BGR2RGB);
+    rgb.convertTo(floatImg, CV_32F, 1.0 / 255);
+
+    // HWC → CHW tensor
+    auto tensor = torch::from_blob(floatImg.data, {1, inputSize_, inputSize_, 3}, torch::kFloat);
+    tensor = tensor.permute({0, 3, 1, 2});
+
+    // Normalize (ImageNet mean/std)
+    tensor[0][0] = tensor[0][0].sub_(0.485).div_(0.229);
+    tensor[0][1] = tensor[0][1].sub_(0.456).div_(0.224);
+    tensor[0][2] = tensor[0][2].sub_(0.406).div_(0.225);
+
+    torch::NoGradGuard noGrad;
+
+    auto output = torchModule_.forward({tensor});
+    auto tuple = output.toTuple();
+    std::vector<PatchFeature> features;
+
+    for (int li = 0; li < static_cast<int>(tuple->elements().size()); li++) {
+        if (li >= static_cast<int>(outputLayerNames_.size())) break;
+        auto feat = tuple->elements()[li].toTensor().cpu().contiguous();
+        int channels = feat.size(1);
+        int h = feat.size(2);
+        int w = feat.size(3);
+        float* data = feat.data_ptr<float>();
+
+        for (int row = 0; row < h; row++) {
+            for (int col = 0; col < w; col++) {
+                PatchFeature pf;
+                pf.layerIdx = li;
+                pf.patchRow = row;
+                pf.patchCol = col;
+                pf.features.resize(channels);
+                for (int c = 0; c < channels; c++) {
+                    pf.features[c] = data[(c * h + row) * w + col];
+                }
+                features.push_back(pf);
+            }
+        }
+    }
+    return features;
+}
+#endif
 
 } // namespace aicore
