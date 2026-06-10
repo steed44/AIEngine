@@ -1,0 +1,15 @@
+{
+    "model_path": "models/model.pt",
+    "onnx_path": "models/model.onnx",
+    "engine_path": "models/model.engine",
+    "input_shape": [1, 3, 640, 640],
+    "precision": "fp16",
+    "opset": 17,
+    "dynamic_batch": true,
+    "max_batch_size": 8,
+    "calibrator": {
+        "calib_dir": "data/calib",
+        "num_calib": 100,
+        "algorithm": "entropy_v2"
+    }
+}

@@ -1,0 +1,14 @@
+{
+    "model": "yolov8n.pt",
+    "data": "data/coco128.yaml",
+    "epochs": 100,
+    "imgsz": 640,
+    "batch": 16,
+    "device": 0,
+    "project": "runs/train",
+    "name": "exp",
+    "optimizer": "Adam",
+    "lr0": 0.001,
+    "pretrained": true,
+    "resume": false
+}

@@ -1,0 +1,45 @@
+# Build
+build/
+cmake-build-*/
+*.o
+*.obj
+*.exe
+*.dll
+*.lib
+*.exp
+*.pdb
+*.ilk
+*.sln
+*.suo
+*.vcxproj.user
+*.vcxproj.filters
+*.vcxproj
+vs2022/
+out/
+
+# IDE
+.vs/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Qt
+moc_*.cpp
+qrc_*.cpp
+ui_*.h
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Test artifacts
+test_*.bin
+test_images/
+empty_test_dir/
+
+# Config override
+pipeline_config.json
