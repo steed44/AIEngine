@@ -1,8 +1,21 @@
+# ============================================================
+# 文件: scripts/train_yolo.py
+# 用途: YOLOv8 训练脚本 — 被 C++ 训练器通过 Python 嵌入调用
+#   从 JSON 配置读取参数，训练 YOLO 模型并返回结果 JSON
+# ============================================================
+
 import json
 import sys
 from ultralytics import YOLO
 
 def train(cfg_json):
+    """训练 YOLO 模型
+
+    参数:
+        cfg_json: JSON 字符串，包含 data/epochs/imgsz/batch 等训练参数
+    返回:
+        JSON 字符串，包含 best.pt/last.pt 路径和 mAP 指标
+    """
     cfg = json.loads(cfg_json)
     model = YOLO(cfg.get("model", "yolov8n.pt"))
     results = model.train(

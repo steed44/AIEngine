@@ -1,3 +1,9 @@
+// ============================================================
+// 文件: tests/test_patchcore.cpp
+// 用途: PatchCore 异常检测模块单元测试
+//   涵盖 MemoryBank / CoresetSampler / PatchCoreNode / Trainer / Dataset
+// ============================================================
+
 #include <gtest/gtest.h>
 #include "patchcore/memory_bank.h"
 #include "patchcore/coreset_sampler.h"
@@ -10,6 +16,7 @@
 
 using namespace aicore;
 
+// 测试：MemoryBank 构建和最近邻查询
 TEST(MemoryBankTest, BuildAndQuery) {
     std::vector<PatchFeature> features;
     for (int i = 0; i < 10; i++) {
@@ -30,6 +37,7 @@ TEST(MemoryBankTest, BuildAndQuery) {
     EXPECT_NEAR(dist, 0, 1e-5);
 }
 
+// 测试：MemoryBank 保存到文件后重新加载，数据一致
 TEST(MemoryBankTest, SaveLoadRoundtrip) {
     std::vector<PatchFeature> features;
     PatchFeature pf;
@@ -49,6 +57,7 @@ TEST(MemoryBankTest, SaveLoadRoundtrip) {
     std::remove("test_mem.bin");
 }
 
+// 测试：CoresetSampler 将 100 个特征抽样为 10 个
 TEST(CoresetSamplerTest, ReduceSize) {
     std::vector<PatchFeature> pool;
     for (int i = 0; i < 100; i++) {
@@ -61,6 +70,7 @@ TEST(CoresetSamplerTest, ReduceSize) {
     EXPECT_EQ(indices.size(), 10);
 }
 
+// 测试：PatchCoreNode 缺少模型路径时初始化失败
 TEST(PatchCoreNodeTest, InitMissingModelPath) {
     PatchCoreNode node;
     NodeConfig cfg;
@@ -68,6 +78,7 @@ TEST(PatchCoreNodeTest, InitMissingModelPath) {
     EXPECT_FALSE(s);
 }
 
+// 测试：PatchCoreNode 处理空输入返回失败
 TEST(PatchCoreNodeTest, ProcessEmptyInput) {
     PatchCoreNode node;
     std::vector<Frame> inputs, outputs;
@@ -75,6 +86,7 @@ TEST(PatchCoreNodeTest, ProcessEmptyInput) {
     EXPECT_FALSE(s);
 }
 
+// 测试：PatchCoreNode 初始化时加载 memory bank 文件
 TEST(PatchCoreNodeTest, InitLoadsMemoryBank) {
     std::vector<PatchFeature> feats;
     PatchFeature pf;
@@ -92,17 +104,19 @@ TEST(PatchCoreNodeTest, InitLoadsMemoryBank) {
     try {
         (void)node.Init(cfg);
     } catch (...) {
-        // OpenCV dnn throws if ONNX file doesn't exist - expected
+        // OpenCV dnn 会在 ONNX 文件不存在时抛出异常 — 属预期行为
     }
     std::remove("test_patchcore.bin");
 }
 
+// 测试：训练器在路径不存在时返回失败
 TEST(PatchCoreTrainerTest, FolderNotFound) {
     PatchCoreTrainer trainer;
     auto s = trainer.TrainFromFolder("nonexistent_dir", "dummy.onnx", "out.bin", {});
     EXPECT_FALSE(s);
 }
 
+// 测试：训练器在空文件夹时返回失败
 TEST(PatchCoreTrainerTest, EmptyFolder) {
     std::string dir = "empty_test_dir/";
     std::filesystem::create_directories(dir);
@@ -114,6 +128,7 @@ TEST(PatchCoreTrainerTest, EmptyFolder) {
     std::filesystem::remove_all(dir);
 }
 
+// 测试：FolderDataset 从文件夹加载图片，大小正确
 TEST(FolderDatasetTest, LoadFromFolder) {
     std::string dir = "test_images/";
     std::filesystem::create_directories(dir);

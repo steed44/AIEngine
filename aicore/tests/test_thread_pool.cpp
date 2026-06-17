@@ -1,3 +1,8 @@
+// ============================================================
+// 文件: tests/test_thread_pool.cpp
+// 用途: 线程池 (ThreadPool) 和引擎池 (EnginePool) 单元测试
+// ============================================================
+
 #include <gtest/gtest.h>
 #include "engine/thread_pool.h"
 #include "engine/engine_pool.h"
@@ -5,12 +10,14 @@
 
 using namespace aicore;
 
+// 测试：线程池基本入队和执行
 TEST(ThreadPoolTest, BasicEnqueue) {
     ThreadPool pool(2);
     auto future = pool.Enqueue([] { return 42; });
     EXPECT_EQ(future.get(), 42);
 }
 
+// 测试：线程池并行执行 100 个任务
 TEST(ThreadPoolTest, ParallelExecution) {
     ThreadPool pool(4);
     std::atomic<int> counter{0};
@@ -25,6 +32,7 @@ TEST(ThreadPoolTest, ParallelExecution) {
     EXPECT_EQ(counter.load(), kTasks);
 }
 
+// 测试：线程池 WaitAll 等待所有任务完成
 TEST(ThreadPoolTest, WaitAll) {
     ThreadPool pool(2);
     std::atomic<int> counter{0};
@@ -40,6 +48,7 @@ TEST(ThreadPoolTest, WaitAll) {
     EXPECT_EQ(counter.load(), kTasks);
 }
 
+// 测试：线程池待处理任务计数
 TEST(ThreadPoolTest, PendingCount) {
     ThreadPool pool(1);
     pool.Enqueue([] { std::this_thread::sleep_for(std::chrono::milliseconds(50)); });
@@ -49,6 +58,7 @@ TEST(ThreadPoolTest, PendingCount) {
     EXPECT_EQ(pool.GetPendingCount(), 0);
 }
 
+// 测试：引擎池获取/释放引擎
 TEST(EnginePoolTest, AcquireRelease) {
     EnginePool pool(2);
     ModelInfo info;
@@ -65,6 +75,7 @@ TEST(EnginePoolTest, AcquireRelease) {
     EXPECT_TRUE(s);
 }
 
+// 测试：引擎池复用已释放的引擎（同一指针）
 TEST(EnginePoolTest, ReuseEngine) {
     EnginePool pool(2);
     ModelInfo info;
@@ -80,6 +91,7 @@ TEST(EnginePoolTest, ReuseEngine) {
     EXPECT_EQ(engine1.get(), engine2.get());
 }
 
+// 测试：引擎池 Clear 后仍然可以获取新引擎
 TEST(EnginePoolTest, Clear) {
     EnginePool pool(2);
     ModelInfo info;

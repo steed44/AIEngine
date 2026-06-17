@@ -1,3 +1,8 @@
+// ============================================================
+// memory_bank.cpp — MemoryBank 记忆库核心实现
+// 功能：提供特征库的构建、序列化、最近邻检索和异常热力图生成
+// 文件格式：魔数(4B) + 数量(4B) + 维度(4B) + N 个特征记录
+// ============================================================
 #include "patchcore/memory_bank.h"
 #include <fstream>
 #include <algorithm>
@@ -8,6 +13,10 @@
 
 namespace aicore {
 
+// MemoryBank（记忆库）是 PatchCore 的核心数据结构：
+// 它在训练阶段存储所有正常图像的特征向量（或其核心子集），
+// 在推理阶段作为"正常性"的参考基准。
+// 类比：记忆库 = 质检员记忆中的"合格品特征字典"
 void MemoryBank::Build(const std::vector<PatchFeature>& features) {
     bank_ = features;
     if (!features.empty()) {
@@ -15,11 +24,22 @@ void MemoryBank::Build(const std::vector<PatchFeature>& features) {
     }
 }
 
+// 清空记忆库（释放所有特征，重置维度为 0）
+// 通常在重新训练或节点销毁时调用
 void MemoryBank::Clear() {
     bank_.clear();
     featureDim_ = 0;
 }
 
+// -------------------------------------------------------
+// 序列化保存到二进制文件
+// 文件布局（小端序）：
+//   [Magic: uint32_t = 0x50434F52] "PCOR"
+//   [Num:   uint32_t] 特征数量
+//   [Dim:   uint32_t] 特征维度
+//   [Feature 0: Dim个float + layerIdx(int) + row(int) + col(int)]
+//   [Feature 1: ...]
+// -------------------------------------------------------
 bool MemoryBank::Save(const std::string& path) const {
     std::ofstream f(path, std::ios::binary);
     if (!f) return false;
@@ -37,12 +57,15 @@ bool MemoryBank::Save(const std::string& path) const {
     return f.good();
 }
 
+// -------------------------------------------------------
+// 从二进制文件加载记忆库（含魔数校验）
+// -------------------------------------------------------
 bool MemoryBank::Load(const std::string& path) {
     std::ifstream f(path, std::ios::binary);
     if (!f) return false;
     uint32_t magic = 0, num = 0, dim = 0;
     f.read(reinterpret_cast<char*>(&magic), sizeof(magic));
-    if (magic != kMagic) return false;
+    if (magic != kMagic) return false;  // 魔数不匹配，非合法记忆库文件
     f.read(reinterpret_cast<char*>(&num), sizeof(num));
     f.read(reinterpret_cast<char*>(&dim), sizeof(dim));
     bank_.resize(num);
@@ -57,6 +80,23 @@ bool MemoryBank::Load(const std::string& path) {
     return f.good();
 }
 
+// -------------------------------------------------------
+// 暴力最近邻搜索（Brute-force k=1 NN）
+// 算法原理：
+//   PatchCore 使用特征空间中的最近邻距离作为异常得分。
+//   核心假设：正常样本的特征在特征空间中聚集，异常样本（如划痕、污渍）
+//   的特征会偏离正常聚类中心，因此到最近邻的距离越大，异常概率越高。
+//   
+//   距离度量：L2 欧氏距离 ||q - p||₂
+//   选择 L2 的原因：
+//     - 在 CNN 特征空间中 L2 距离与余弦相似度单调相关（特征已归一化时等价）
+//     - 计算开销低于 Mahalanobis 距离（无需协方差矩阵求逆）
+//     - 对特征各维度权重平等，无需额外学习
+//
+//   时间复杂度：O(N·D)，N=记忆库大小，D=特征维度
+//   适用场景：记忆库规模 ≤ 10⁵ 时暴力搜索足够快
+//   大规模场景可替换为 FAISS 库的近似最近邻搜索（IVF/HNSW）
+// -------------------------------------------------------
 size_t MemoryBank::NearestNeighbor(const std::vector<float>& query, float& distOut) const {
     if (bank_.empty()) return 0;
     size_t bestIdx = 0;
@@ -76,8 +116,35 @@ size_t MemoryBank::NearestNeighbor(const std::vector<float>& query, float& distO
     return bestIdx;
 }
 
+// -------------------------------------------------------
+// 计算整张图像的异常热力图
+// 流程：
+//   1. 遍历所有查询 PatchFeature，确定特征图最大行列数
+//   2. 对每个 Patch 位置执行最近邻搜索，得该点异常得分
+//   3. 将低分辨率的得分图上采样到原图尺寸（双线性插值）
+//
+// 异常热力图计算流程详解：
+//
+// Step 1: 空间索引重建
+//   从 PatchFeature 的 (patchRow, patchCol) 字段重建特征图的空间布局。
+//   每个 PatchFeature 对应特征图上的一个空间位置，其最近邻距离即为该位置
+//   的异常得分（score map），尺寸为 H_feat × W_feat（如 28×28）。
+//
+// Step 2: 异常得分映射
+//   对每个空间位置 (r, c)，用该位置的 Patch 特征向量在记忆库中执行
+//   最近邻搜索，得到 L2 距离作为该位置的异常得分 s(r,c)。
+//   得分越高，说明该位置越不像记忆库中的"正常"特征。
+//
+// Step 3: 双线性上采样到原图尺寸
+//   特征图得分 s(r,c) 分辨率远低于原图，通过双线性插值上采样到
+//   原图尺寸 imgH×imgW，得到像素级的异常热力图。
+//   双线性插值公式：
+//     f(x,y) = (1-α)(1-β)f(i,j) + α(1-β)f(i+1,j) + (1-α)βf(i,j+1) + αβf(i+1,j+1)
+//   其中 i=floor(x), j=floor(y), α=x-i, β=y-j
+// -------------------------------------------------------
 std::vector<float> MemoryBank::ComputeAnomalyMap(
     const std::vector<PatchFeature>& queries, int imgH, int imgW) const {
+    // 确定特征图的空间尺寸（取所有位置中的最大行列 + 1）
     int maxRow = 0, maxCol = 0;
     for (auto& q : queries) {
         maxRow = std::max(maxRow, q.patchRow + 1);
@@ -85,6 +152,7 @@ std::vector<float> MemoryBank::ComputeAnomalyMap(
     }
     if (maxRow == 0 || maxCol == 0) return {};
 
+    // 构建低分辨率得分图
     cv::Mat scoreMap(maxRow, maxCol, CV_32F);
     for (auto& q : queries) {
         float dist = 0;
@@ -92,9 +160,11 @@ std::vector<float> MemoryBank::ComputeAnomalyMap(
         scoreMap.at<float>(q.patchRow, q.patchCol) = dist;
     }
 
+    // 双线性上采样到原图尺寸
     cv::Mat upsampled;
     cv::resize(scoreMap, upsampled, cv::Size(imgW, imgH), 0, 0, cv::INTER_LINEAR);
 
+    // 转为连续内存的 vector 返回
     std::vector<float> result(imgW * imgH);
     std::copy(upsampled.begin<float>(), upsampled.end<float>(), result.begin());
     return result;

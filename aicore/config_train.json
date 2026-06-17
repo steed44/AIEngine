@@ -1,14 +1,16 @@
 {
-    "model": "yolov8n.pt",
-    "data": "data/coco128.yaml",
-    "epochs": 100,
-    "imgsz": 640,
-    "batch": 16,
-    "device": 0,
-    "project": "runs/train",
-    "name": "exp",
-    "optimizer": "Adam",
-    "lr0": 0.001,
-    "pretrained": true,
-    "resume": false
+    // YOLO 训练配置文件
+    // 由 AICoreTrainer CLI 读取，传递给 train_yolo.py
+    "model": "yolov8n.pt",      // 预训练模型名称或路径
+    "data": "data/coco128.yaml", // 数据集配置文件 (YAML)
+    "epochs": 100,               // 训练轮数
+    "imgsz": 640,                // 输入图片尺寸
+    "batch": 16,                 // 批次大小
+    "device": 0,                 // GPU 设备 ID (CPU 用 "cpu")
+    "project": "runs/train",     // 输出项目目录
+    "name": "exp",               // 实验名称
+    "optimizer": "Adam",         // 优化器类型
+    "lr0": 0.001,                // 初始学习率
+    "pretrained": true,          // 是否使用预训练权重
+    "resume": false              // 是否从断点恢复训练
 }

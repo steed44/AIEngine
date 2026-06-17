@@ -1,3 +1,8 @@
+// ============================================================
+// 文件: tests/test_processor.cpp
+// 用途: Frame 数据结构和 IProcessor 接口的单元测试
+// ============================================================
+
 #include <gtest/gtest.h>
 #include "core/frame.h"
 #include "core/processor.h"
@@ -6,12 +11,14 @@
 
 using namespace aicore;
 
+// 测试：Frame 默认构造为空
 TEST(FrameTest, DefaultConstructor) {
     Frame f;
     EXPECT_TRUE(f.empty());
     EXPECT_EQ(f.frameId, 0);
 }
 
+// 测试：用 cv::Mat 构造 Frame，尺寸正确
 TEST(FrameTest, MatConstructor) {
     cv::Mat img(480, 640, CV_8UC3, cv::Scalar(0, 0, 0));
     Frame f(img, 1);
@@ -21,6 +28,7 @@ TEST(FrameTest, MatConstructor) {
     EXPECT_EQ(f.height(), 480);
 }
 
+// 测试：Frame 移动语义 — 原 Mat 被移动后为空
 TEST(FrameTest, MoveSemantics) {
     cv::Mat img(100, 200, CV_8UC3);
     Frame f(std::move(img), 42);
@@ -29,6 +37,7 @@ TEST(FrameTest, MoveSemantics) {
     EXPECT_TRUE(img.empty());
 }
 
+// 测试用 IProcessor 实现 — 简单复制输入到输出
 class TestProcessor : public IProcessor {
 public:
     Status Init(const NodeConfig& config) override {
@@ -47,6 +56,7 @@ public:
     NodeConfig config_;
 };
 
+// 测试：IProcessor 基本流程 — Init / GetName / GetType
 TEST(IProcessorTest, BasicFlow) {
     TestProcessor proc;
     NodeConfig cfg{{"param1", "value1"}};
@@ -56,6 +66,7 @@ TEST(IProcessorTest, BasicFlow) {
     EXPECT_EQ(proc.config_["param1"], "value1");
 }
 
+// 测试：Process 方法复制输入图像（输出数据指针不同）
 TEST(IProcessorTest, ProcessCopiesInput) {
     TestProcessor proc;
     proc.Init({});
@@ -71,6 +82,7 @@ TEST(IProcessorTest, ProcessCopiesInput) {
     EXPECT_EQ(outputs[0].frameId, 1);
 }
 
+// 测试：PipelineState 枚举值互不相同
 TEST(PipelineStateTest, EnumValues) {
     EXPECT_NE(static_cast<int>(PipelineState::kCreated),
               static_cast<int>(PipelineState::kReady));

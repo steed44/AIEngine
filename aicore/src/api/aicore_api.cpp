@@ -1,3 +1,8 @@
+// ============================================================
+// aicore_api.cpp — AIEngine C 公共 API 实现
+// 提供 C 语言接口供外部调用，包含管线创建/执行/销毁和结果序列化
+// ============================================================
+
 #include "api/aicore_api.h"
 #include "config/config_parser.h"
 #include "config/pipeline_builder.h"
@@ -9,9 +14,17 @@
 
 namespace aicore {
 
+/// 全局互斥锁，保护错误信息存储
 static std::mutex gMutex;
+/// 错误信息缓存表（当前未使用，保留扩展）
 static std::unordered_map<void*, std::string> gErrors;
 
+/**
+ * 存储错误信息并返回 C 字符串指针
+ * 使用静态 lastError 缓存最近一条错误，保证返回的指针在调用期内有效
+ * @param err 源错误字符串
+ * @return 指向缓存的 C 风格错误字符串的指针
+ */
 static const char* StoreError(const std::string& err) {
     std::lock_guard<std::mutex> lock(gMutex);
     auto ptr = reinterpret_cast<void*>(const_cast<char*>(err.c_str()));
@@ -24,10 +37,21 @@ static const char* StoreError(const std::string& err) {
 
 using namespace aicore;
 
+/**
+ * 返回当前 AIEngine 核心库的版本号
+ * @return "0.1.0" 版本字符串
+ */
 const char* aicore_version() {
     return "0.1.0";
 }
 
+/**
+ * 根据 JSON 配置字符串创建一条推理管线
+ * 内部依次：解析 JSON → 构建管线拓扑 → 返回不透明句柄
+ * @param configJson JSON 格式的管线配置字符串
+ * @param errorOut   输出参数，失败时返回错误描述，可传入 nullptr
+ * @return 成功返回管线句柄（AICorePipeline），失败返回 nullptr
+ */
 AICorePipeline aicore_pipeline_create(const char* configJson,
                                        const char** errorOut) {
     if (!configJson) {
@@ -54,6 +78,18 @@ AICorePipeline aicore_pipeline_create(const char* configJson,
     return static_cast<AICorePipeline>(pipeline.release());
 }
 
+/**
+ * 执行管线推理
+ * 将输入图像数据包装为 cv::Mat，送入管线执行，结果通过 resultOut 返回
+ * @param pipeline  管线句柄（由 aicore_pipeline_create 创建）
+ * @param imageData 原始图像像素数据指针（RGB/BGR/灰度）
+ * @param width     图像宽度（像素）
+ * @param height    图像高度（像素）
+ * @param channels  图像通道数（1=灰度，3=RGB/BGR，4=RGBA）
+ * @param resultOut 输出参数，推理结果句柄
+ * @param errorOut  输出参数，失败时返回错误描述，可传入 nullptr
+ * @return 0 成功，-1 失败
+ */
 int aicore_pipeline_execute(AICorePipeline pipeline,
                              const unsigned char* imageData,
                              int width, int height, int channels,
@@ -82,6 +118,12 @@ int aicore_pipeline_execute(AICorePipeline pipeline,
     return 0;
 }
 
+/**
+ * 将推理结果序列化为 JSON 字符串
+ * 包含时间戳、延迟、检测框、置信度、测量值等信息
+ * @param result 推理结果句柄
+ * @return JSON 字符串指针（调用者无需释放，内部静态缓存）
+ */
 const char* aicore_result_to_json(AICoreResult result) {
     if (!result) return "{}";
     auto* r = static_cast<Result*>(result);
@@ -124,14 +166,27 @@ const char* aicore_result_to_json(AICoreResult result) {
     return StoreError(json.str());
 }
 
+/**
+ * 释放由 aicore_pipeline_execute 返回的结果句柄
+ * @param result 要释放的结果句柄
+ */
 void aicore_result_free(AICoreResult result) {
     delete static_cast<Result*>(result);
 }
 
+/**
+ * 销毁管线对象，释放所有后端和处理器资源
+ * @param pipeline 要销毁的管线句柄
+ */
 void aicore_pipeline_destroy(AICorePipeline pipeline) {
     delete static_cast<IPipeline*>(pipeline);
 }
 
+/**
+ * 获取管线当前运行状态
+ * @param pipeline 管线句柄
+ * @return 管线状态枚举整数值，pipeline 为空时返回 -1
+ */
 int aicore_pipeline_get_state(AICorePipeline pipeline) {
     if (!pipeline) return -1;
     return static_cast<int>(static_cast<IPipeline*>(pipeline)->GetState());

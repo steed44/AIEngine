@@ -1,0 +1,22 @@
+{
+  "backbone": {
+    "type": "libtorch",
+    "model_path": "patchcore_backbone.pt",
+    "input_size": 224,
+    "layers": "layer2,layer3"
+  },
+  "rois": [
+    {"id": "connector_left",  "x": 10,   "y": 20,   "width": 120, "height": 80},
+    {"id": "connector_right", "x": 180,  "y": 20,   "width": 120, "height": 80},
+    {"id": "chip",            "x": 50,   "y": 150,  "width": 100, "height": 100},
+    {"id": "solder_joint",    "x": 200,  "y": 180,  "width": 60,  "height": 60}
+  ],
+  "train": {
+    "coreset_fraction": 0.1,
+    "max_features": 100000
+  },
+  "inference": {
+    "anomaly_threshold": 0.5
+  },
+  "model_dir": "./models"
+}

@@ -1,3 +1,9 @@
+// ============================================================
+// 文件: tests/test_pipeline.cpp
+// 用途: 流水线各节点 (Resize/Normalize/NMS/Model/Merge/Composite)
+//       及 PipelineBuilder/PipelineImpl 集成测试
+// ============================================================
+
 #include <gtest/gtest.h>
 #include "core/pipeline.h"
 #include "config/pipeline_builder.h"
@@ -13,6 +19,7 @@
 
 using namespace aicore;
 
+// 测试：ResizeNode 将图片缩放到指定尺寸
 TEST(ResizeNodeTest, ResizeToTarget) {
     ResizeNode node;
     NodeConfig cfg{{"width", "320"}, {"height", "240"}};
@@ -27,6 +34,7 @@ TEST(ResizeNodeTest, ResizeToTarget) {
     EXPECT_EQ(outputs[0].height(), 240);
 }
 
+// 测试：NormalizeNode 将 uint8 转为 float32 类型
 TEST(NormalizeNodeTest, NormalizeValues) {
     NormalizeNode node;
     ASSERT_TRUE(node.Init({}));
@@ -39,6 +47,7 @@ TEST(NormalizeNodeTest, NormalizeValues) {
     EXPECT_EQ(outputs[0].image.type(), CV_32FC3);
 }
 
+// 测试：NMS 节点初始化成功
 TEST(NmsNodeTest, InitSucceeds) {
     NmsNode node;
     NodeConfig cfg{{"iou_threshold", "0.5"}, {"confidence_threshold", "0.3"}};
@@ -46,6 +55,7 @@ TEST(NmsNodeTest, InitSucceeds) {
     EXPECT_EQ(node.GetType(), "nms");
 }
 
+// 测试：ModelNode 初始化和类型名称
 TEST(ModelNodeTest, InitAndGetName) {
     auto backend = BackendFactory::Create(BackendType::kTensorRT);
     ASSERT_NE(backend, nullptr);
@@ -57,6 +67,7 @@ TEST(ModelNodeTest, InitAndGetName) {
     EXPECT_EQ(node.GetBackend().get(), sharedBackend.get());
 }
 
+// 测试：MergeNode 简单透传多个输入帧
 TEST(MergeNodeTest, PassThrough) {
     MergeNode node;
     ASSERT_TRUE(node.Init({}));
@@ -72,6 +83,7 @@ TEST(MergeNodeTest, PassThrough) {
     EXPECT_EQ(outputs[1].frameId, 2);
 }
 
+// 测试：CompositeNode 组合节点设置内部流水线
 TEST(CompositeNodeTest, InnerPipeline) {
     CompositeNode node;
     ASSERT_TRUE(node.Init({}));
@@ -88,6 +100,7 @@ TEST(CompositeNodeTest, InnerPipeline) {
     EXPECT_EQ(node.GetType(), "composite");
 }
 
+// 测试：PipelineBuilder 根据 JSON 配置构建完整流水线
 TEST(PipelineBuilderTest, BuildSimplePipeline) {
     ConfigParser parser;
     PipelineConfig config;
@@ -116,6 +129,7 @@ TEST(PipelineBuilderTest, BuildSimplePipeline) {
     EXPECT_EQ(pipeline->GetState(), PipelineState::kReady);
 }
 
+// 测试：无效节点类型导致构建失败
 TEST(PipelineBuilderTest, InvalidNodeType) {
     PipelineBuilder builder;
     PipelineConfig config;
@@ -125,6 +139,7 @@ TEST(PipelineBuilderTest, InvalidNodeType) {
     EXPECT_FALSE(s);
 }
 
+// 测试：PipelineImpl 执行 resize → normalize 流水线，验证延迟 > 0
 TEST(PipelineTest, ExecuteSimple) {
     auto pipeline = std::make_unique<PipelineImpl>();
     auto resizeNode = std::make_shared<ResizeNode>();

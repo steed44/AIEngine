@@ -1,0 +1,272 @@
+digraph AIEngine {
+    rankdir=TB;
+    splines=true;
+    compound=true;
+    label="AIEngine 代码架构知识图谱";
+    fontsize=16;
+    fontname="Microsoft YaHei";
+    bgcolor="#f8f9fa";
+
+    // ---- 节点样式 ----
+    node [shape=record, style="filled,rounded", fontname="Consolas", fontsize=10];
+    edge [fontname="Microsoft YaHei", fontsize=9];
+
+    // ---- 子图：核心接口层 ----
+    subgraph cluster_core {
+        label="核心层 (core/)";
+        style="filled,rounded";
+        color="#dee2e6";
+        fillcolor="#e9ecef";
+        fontname="Microsoft YaHei";
+        fontsize=11;
+
+        IAllocator [label="{IAllocator|纯虚接口\nAlloc / Free / Copy}", fillcolor="#74c0fc"];
+        IProcessor [label="{IProcessor|纯虚接口\nInit / Process}", fillcolor="#74c0fc"];
+        IPipeline  [label="{IPipeline|纯虚接口\nBuild / Execute}", fillcolor="#74c0fc"];
+        IModelBackend [label="{IModelBackend|纯虚接口\nLoad / Infer}", fillcolor="#74c0fc"];
+        Frame      [label="{Frame|image / frameId\nroiMap / timestamp}", fillcolor="#bac8d3", shape=box];
+        Tensor     [label="{Tensor|shape / data / dtype}", fillcolor="#bac8d3", shape=box];
+        Result     [label="{Result|detections / nodeMetrics\nstatus / totalLatencyMs}", fillcolor="#bac8d3", shape=box];
+    }
+
+    // ---- 子图：Backbone 体系 ----
+    subgraph cluster_backbone {
+        label="Backbone 体系 (patchcore/)";
+        style="filled,rounded";
+        color="#dee2e6";
+        fillcolor="#fff3e0";
+        fontname="Microsoft YaHei";
+        fontsize=11;
+
+        IBackbone [label="{IBackbone|纯虚接口\nInit / Extract / GetType}", fillcolor="#ffa726"];
+        OpenCVDnnBackbone [label="{OpenCVDnnBackbone|IBackbone\ncv::dnn::Net}", fillcolor="#ffcc80"];
+        ModelBackendBackbone [label="{ModelBackendBackbone|IBackbone\nIModelBackend}", fillcolor="#ffcc80"];
+        LibTorchBackbone [label="{LibTorchBackbone|IBackbone\ntorch::jit::Module\n(AICORE_HAS_LIBTORCH)}", fillcolor="#ffcc80"];
+        CreateBackbone [label="{CreateBackbone(type, config)|工厂函数\n→ opencv_dnn: OpenCVDnnBackbone\n→ model_backend: ModelBackendBackbone\n→ libtorch: LibTorchBackbone}", fillcolor="#ffe082", shape=box];
+    }
+
+    // ---- 子图：PatchCore 核心 ----
+    subgraph cluster_patchcore_core {
+        label="PatchCore 核心 (patchcore/)";
+        style="filled,rounded";
+        color="#dee2e6";
+        fillcolor="#e8f5e9";
+        fontname="Microsoft YaHei";
+        fontsize=11;
+
+        MemoryBank [label="{MemoryBank|vector<PatchFeature> bank_\nBuild / Save / Load\nNearestNeighbor / ComputeAnomalyMap}", fillcolor="#66bb6a"];
+        CoresetSampler [label="{CoresetSampler|Sample(pool, targetSize)\n→ vector<size_t>\n最远点采样(FPS)}", fillcolor="#81c784"];
+        PatchFeature [label="{PatchFeature|features / layerIdx\npatchRow / patchCol}", fillcolor="#a5d6a7", shape=box];
+        PatchCoreTrainer [label="{PatchCoreTrainer|Train(IDataset, modelPath, outputPath, cfg)\nTrainFromFolder(...)}", fillcolor="#a5d6a7"];
+        PatchCoreTrainConfig [label="{PatchCoreTrainConfig|inputSize / backboneLayers\nbackboneType / backendType\ncoresetFraction / maxFeatures}", fillcolor="#c8e6c9", shape=box];
+    }
+
+    // ---- 子图：多 ROI 体系 ----
+    subgraph cluster_roi {
+        label="多 ROI 扩展 (patchcore/)";
+        style="filled,rounded";
+        color="#dee2e6";
+        fillcolor="#f3e5f5";
+        fontname="Microsoft YaHei";
+        fontsize=11;
+
+        RoiDef [label="{RoiDef|id / x / y / w / h}", fillcolor="#ce93d8", shape=box];
+        MultiRoiConfig [label="{MultiRoiConfig|backboneType / backendType\nbackboneModelPath / roi列表\ncoresetFraction / anomalyThreshold}", fillcolor="#ce93d8", shape=box];
+        RoiTrainer [label="{RoiTrainer|TrainAll(configPath, dataFolder)\nTrainAllStreaming(...)\nTrainAllBatch(...)}", fillcolor="#ba68c8"];
+        MultiRoiNode [label="{MultiRoiNode|IProcessor\n共享 IBackbone\nvector<RoiModelSlot> slots}", fillcolor="#ba68c8"];
+        RoiModelSlot [label="{RoiModelSlot|roiId / MemoryBank\nanomalyThreshold / cv::Rect}", fillcolor="#e1bee7", shape=box];
+    }
+
+    // ---- 子图：Pipeline 节点 ----
+    subgraph cluster_pipeline {
+        label="Pipeline 体系";
+        style="filled,rounded";
+        color="#dee2e6";
+        fillcolor="#fff3e0";
+        fontname="Microsoft YaHei";
+        fontsize=11;
+
+        ResizeNode [label="{ResizeNode|IProcessor\ntargetWidth / targetHeight}", fillcolor="#ffb74d"];
+        NormalizeNode [label="{NormalizeNode|IProcessor\nmean / std / bgrToRgb}", fillcolor="#ffb74d"];
+        NmsNode [label="{NmsNode|IProcessor\niouThreshold}", fillcolor="#ffb74d"];
+        ModelNode [label="{ModelNode|IProcessor\nIModelBackend}", fillcolor="#ffb74d"];
+        MergeNode [label="{MergeNode|IProcessor\nmergeMode}", fillcolor="#ffb74d"];
+        CompositeNode [label="{CompositeNode|IProcessor\ninnerPipeline}", fillcolor="#ffb74d"];
+        PatchCoreNode [label="{PatchCoreNode|IProcessor\nIBackbone + MemoryBank\n异常检测}", fillcolor="#ffb74d"];
+    }
+
+    // ---- 子图：训练模块 ----
+    subgraph cluster_trainer {
+        label="训练模块 (trainer/, 桩实现)";
+        style="filled,rounded";
+        color="#dee2e6";
+        fillcolor="#e8f5e9";
+        fontname="Microsoft YaHei";
+        fontsize=11;
+
+        IDataset [label="{IDataset|纯虚接口\nLoad / Size / Get}", fillcolor="#81c784"];
+        COCODataset [label="{COCODataset|IDataset}", fillcolor="#a5d6a7"];
+        FolderDataset [label="{FolderDataset|IDataset\nimages from folder\nListImageFiles(static)}", fillcolor="#a5d6a7"];
+        DataLoader [label="{DataLoader\nIDataset + batch}", fillcolor="#a5d6a7"];
+        AugmentationPipeline [label="{AugmentationPipeline\nIAugmentation 链}", fillcolor="#a5d6a7"];
+        TrainingLoop [label="{TrainingLoop\nepoch loop + callbacks}", fillcolor="#66bb6a"];
+        ModelFactory [label="{ModelFactory\nCreate(ModelArch)}", fillcolor="#66bb6a"];
+        PythonTrainer [label="{PythonTrainer\nPython 嵌入代理}", fillcolor="#81c784"];
+    }
+
+    // ---- 子图：引擎层 ----
+    subgraph cluster_engine {
+        label="引擎层 (engine/)";
+        style="filled,rounded";
+        color="#dee2e6";
+        fillcolor="#e3f2fd";
+        fontname="Microsoft YaHei";
+        fontsize=11;
+
+        ThreadPool [label="{ThreadPool\ntask queue / worker threads}", fillcolor="#64b5f6"];
+        EnginePool [label="{EnginePool\nmodel cache / LRU}", fillcolor="#64b5f6"];
+        PipelineImpl [label="{PipelineImpl|IPipeline\nDAG 编排}", fillcolor="#42a5f5"];
+    }
+
+    // ---- 子图：配置与构建 ----
+    subgraph cluster_config {
+        label="配置层 (config/)";
+        style="filled,rounded";
+        color="#dee2e6";
+        fillcolor="#fce4ec";
+        fontname="Microsoft YaHei";
+        fontsize=11;
+
+        ConfigParser [label="{ConfigParser\nParse / Serialize}", fillcolor="#ef9a9a"];
+        PipelineBuilder [label="{PipelineBuilder\n静态 Build(json) → IPipeline}", fillcolor="#ef9a9a"];
+        PipelineConfig [label="{PipelineConfig\nnodes / edges}", fillcolor="#f48fb1", shape=box];
+    }
+
+    // ---- 子图：优化器 ----
+    subgraph cluster_optimizer {
+        label="优化器 (optimizer/, 桩实现)";
+        style="filled,rounded";
+        color="#dee2e6";
+        fillcolor="#fff8e1";
+        fontname="Microsoft YaHei";
+        fontsize=11;
+
+        ModelOptimizer [label="{ModelOptimizer\nOptimize(config)}", fillcolor="#fff176"];
+        OnnxExporter [label="{OnnxExporter\nExport / Simplify}", fillcolor="#fff176"];
+        TensorRtBuilder [label="{TensorRtBuilder\nBuild(onnx → engine)}", fillcolor="#fff9c4"];
+        PythonEmbedding [label="{PythonEmbedding\nRunScript(script)}", fillcolor="#fff9c4"];
+    }
+
+    // ---- 子图：C API ----
+    subgraph cluster_api {
+        label="C API (api/)";
+        style="filled,rounded";
+        color="#dee2e6";
+        fillcolor="#f3e5f5";
+        fontname="Microsoft YaHei";
+        fontsize=11;
+
+        AICoreAPI [label="{aicore_api.h\nC API 入口\n7 个导出函数}", fillcolor="#ba68c8"];
+    }
+
+    // ---- 子图：CLI 工具 ----
+    subgraph cluster_cli {
+        label="CLI 工具 (cli/)";
+        style="filled,rounded";
+        color="#dee2e6";
+        fillcolor="#f5f5f5";
+        fontname="Microsoft YaHei";
+        fontsize=11;
+
+        PatchCoreTrainCLI [label="{PatchCoreTrain}", fillcolor="#bdbdbd", shape=box];
+        RoiTrainCLI [label="{RoiTrain\n--stream / --no-stream}", fillcolor="#bdbdbd", shape=box];
+        RoiInferCLI [label="{RoiInfer\n--config / --image}", fillcolor="#bdbdbd", shape=box];
+        ModelOptimizerCLI [label="{ModelOptimizer}", fillcolor="#bdbdbd", shape=box];
+        TrainerCLI [label="{AICoreTrainer}", fillcolor="#bdbdbd", shape=box];
+    }
+
+    // ============ 边 ============
+
+    // -- 继承关系 (实线箭头) --
+    OpenCVDnnBackbone    -> IBackbone [dir=back, arrowtail=empty, label="继承", color="#e65100"];
+    ModelBackendBackbone -> IBackbone [dir=back, arrowtail=empty, label="继承", color="#e65100"];
+    LibTorchBackbone     -> IBackbone [dir=back, arrowtail=empty, label="继承", color="#e65100"];
+
+    PipelineImpl -> IPipeline [dir=back, arrowtail=empty, label="继承", color="#1565c0"];
+    ResizeNode -> IProcessor [dir=back, arrowtail=empty, label="继承", color="#e65100"];
+    NormalizeNode -> IProcessor [dir=back, arrowtail=empty, label="继承", color="#e65100"];
+    NmsNode -> IProcessor [dir=back, arrowtail=empty, label="继承", color="#e65100"];
+    ModelNode -> IProcessor [dir=back, arrowtail=empty, label="继承", color="#e65100"];
+    MergeNode -> IProcessor [dir=back, arrowtail=empty, label="继承", color="#e65100"];
+    CompositeNode -> IProcessor [dir=back, arrowtail=empty, label="继承", color="#e65100"];
+    PatchCoreNode -> IProcessor [dir=back, arrowtail=empty, label="继承", color="#e65100"];
+    MultiRoiNode -> IProcessor [dir=back, arrowtail=empty, label="继承", color="#e65100"];
+
+    COCODataset -> IDataset [dir=back, arrowtail=empty, label="继承", color="#2e7d32"];
+    FolderDataset -> IDataset [dir=back, arrowtail=empty, label="继承", color="#2e7d32"];
+
+    // -- 工厂关系 (虚线箭头) --
+    CreateBackbone -> OpenCVDnnBackbone [style=dashed, label="创建", color="#e65100", arrowhead=vee];
+    CreateBackbone -> ModelBackendBackbone [style=dashed, label="创建", color="#e65100", arrowhead=vee];
+    CreateBackbone -> LibTorchBackbone [style=dashed, label="创建", color="#e65100", arrowhead=vee];
+
+    // -- 组合/持有关系 (带点的箭头) --
+    ModelBackendBackbone -> IModelBackend [style=dotted, label="持有", color="#e65100", arrowhead=open];
+
+    PatchCoreNode -> IBackbone [style=dotted, label="持有", color="#2e7d32", arrowhead=open];
+    PatchCoreNode -> MemoryBank [style=dotted, label="持有", color="#2e7d32", arrowhead=open];
+
+    MultiRoiNode -> IBackbone [style=dotted, label="共享持有", color="#6a1b9a", arrowhead=open];
+    MultiRoiNode -> RoiModelSlot [style=dotted, label="持有 slots", color="#6a1b9a", arrowhead=open];
+    // RoiModelSlot -> MemoryBank [style=dotted, label="持有", color="#6a1b9a", arrowhead=open];  // 已从 RoiModelSlot 定义中体现
+
+    PatchCoreTrainer -> CoresetSampler [style=dotted, label="使用", color="#2e7d32", arrowhead=open];
+    PatchCoreTrainer -> MemoryBank [style=dotted, label="构建", color="#2e7d32", arrowhead=open];
+
+    RoiTrainer -> IBackbone [style=dotted, label="创建+持有", color="#6a1b9a", arrowhead=open];
+    RoiTrainer -> CoresetSampler [style=dotted, label="使用", color="#6a1b9a", arrowhead=open];
+    RoiTrainer -> MemoryBank [style=dotted, label="构建", color="#6a1b9a", arrowhead=open];
+
+    FolderDataset -> IDataset [style=invis];
+
+    // -- 数据流 (加粗实线箭头, 带标签) --
+    IBackbone -> PatchFeature [style=bold, label="Extract 返回", color="#d32f2f", arrowhead=open];
+    CoresetSampler -> PatchFeature [style=bold, label="Sample 操作", color="#d32f2f", arrowhead=open];
+    MemoryBank -> PatchFeature [style=bold, label="存储", color="#d32f2f", arrowhead=open];
+
+    // 训练数据流
+    FolderDataset -> PatchCoreTrainer [style=bold, label="训练数据", color="#2e7d32", arrowhead=open, weight=10];
+    PatchCoreTrainer -> MemoryBank [style=bold, label="构建", color="#2e7d32", arrowhead=open];
+
+    // 推理数据流
+    MemoryBank -> PatchCoreNode [style=bold, label="加载", color="#1565c0", arrowhead=open];
+    MemoryBank -> MultiRoiNode [style=bold, label="加载", color="#6a1b9a", arrowhead=open];
+
+    // -- 模块依赖关系 --
+    PipelineImpl -> ThreadPool [style=solid, label="依赖", color="#1565c0", arrowhead=none];
+    PipelineImpl -> EnginePool [style=solid, label="依赖", color="#1565c0", arrowhead=none];
+    PipelineImpl -> IProcessor [style=solid, label="编排", color="#1565c0", arrowhead=none];
+    PipelineBuilder -> ConfigParser [style=solid, label="使用", color="#c62828", arrowhead=none];
+    PipelineBuilder -> PipelineImpl [style=solid, label="构建", color="#c62828", arrowhead=none];
+
+    // -- CLI 依赖 --
+    PatchCoreTrainCLI -> PatchCoreTrainer [label="调用", color="#424242", arrowhead=open];
+    RoiTrainCLI -> RoiTrainer [label="调用", color="#424242", arrowhead=open];
+    RoiInferCLI -> MultiRoiNode [label="调用", color="#424242", arrowhead=open];
+    ModelOptimizerCLI -> ModelOptimizer [label="调用", color="#424242", arrowhead=open];
+    TrainerCLI -> PythonTrainer [label="调用", color="#424242", arrowhead=open];
+
+    // -- C API --
+    AICoreAPI -> PipelineImpl [label="封装", color="#6a1b9a", arrowhead=open];
+
+    // -- 逻辑分组标注 --
+    PatchCoreTrainConfig -> PatchCoreTrainer [style=dashed, label="配置", color="#388e3c", arrowhead=open];
+    MultiRoiConfig -> RoiTrainer [style=dashed, label="配置", color="#6a1b9a", arrowhead=open];
+    MultiRoiConfig -> MultiRoiNode [style=dashed, label="配置", color="#6a1b9a", arrowhead=open];
+    RoiDef -> MultiRoiConfig [style=solid, label="聚合", color="#6a1b9a", arrowhead=none];
+
+    // -- 迁移路径标注 --
+    label_old [label="旧: 全部加载到内存\n→ 216GB (300×720MB)", shape=note, fillcolor="#ffcdd2", fontsize=9];
+    label_new [label="新: 流式单次遍历\n→ 峰值 1.2GB\n→ 添加 --no-stream 回退", shape=note, fillcolor="#c8e6c9", fontsize=9];
+    RoiTrainer -> label_new [style=dashed, label="", color="#4caf50", arrowhead=none];
+}

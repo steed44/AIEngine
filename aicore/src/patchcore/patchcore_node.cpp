@@ -1,74 +1,42 @@
+// ============================================================
+// patchcore_node.cpp — PatchCoreNode 的处理节点实现
+// 功能：实现 PatchCore 推理节点的初始化和 Process 逻辑
+// ============================================================
 #include "patchcore/patchcore_node.h"
 #include <opencv2/imgproc.hpp>
-#include <sstream>
 
 namespace aicore {
 
-static std::vector<std::string> SplitLayerNames(const std::string& s) {
-    std::vector<std::string> result;
-    std::stringstream ss(s);
-    std::string item;
-    while (std::getline(ss, item, ',')) {
-        if (!item.empty()) result.push_back(item);
-    }
-    return result;
-}
-
+// -------------------------------------------------------
+// 初始化 PatchCore 推理节点
+// 从 NodeConfig 中解析以下关键配置：
+//   - name: 节点名称（可选，默认 "patchcore"）
+//   - backbone: backbone 类型（可选，默认 "opencv_dnn"）
+//   - memory_bank_path: 预训练记忆库文件路径（可选）
+//   - input_size: 输入图像缩放尺寸（可选，默认 224）
+//   - anomaly_threshold: 异常判定阈值（可选，默认 0.5）
+// -------------------------------------------------------
 Status PatchCoreNode::Init(const NodeConfig& config) {
     name_ = config.count("name") ? config.at("name") : "patchcore";
 
-    auto it = config.find("model_path");
-    if (it == config.end()) {
-        return Status{StatusCode::ErrorConfigParse, "patchcore: model_path required"};
-    }
-
     auto bt = config.find("backbone");
-    if (bt != config.end()) {
-        backboneType_ = bt->second;
-    }
+    std::string backboneType = (bt != config.end()) ? bt->second : "opencv_dnn";
 
-    if (backboneType_ == "libtorch") {
-#ifdef AICORE_HAS_LIBTORCH
-        try {
-            torchModule_ = torch::jit::load(it->second);
-            torchModule_.eval();
-        } catch (const std::exception& e) {
-            return Status{StatusCode::ErrorModelLoad,
-                std::string("patchcore: failed to load torch model: ") + e.what()};
-        }
-#else
-        return Status{StatusCode::ErrorModelLoad,
-            "patchcore: libtorch backbone requires AICORE_HAS_LIBTORCH"};
-#endif
-    } else if (backboneType_ == "model_backend") {
-        auto bk = config.find("backend_type");
-        BackendType backendType = BackendType::kONNXRuntime;
-        if (bk != config.end()) {
-            if (bk->second == "tensorrt") backendType = BackendType::kTensorRT;
-            else if (bk->second == "libtorch") backendType = BackendType::kLibTorch;
-        }
-        backend_ = BackendFactory::Create(backendType);
-        if (!backend_) {
-            return Status{StatusCode::ErrorConfigParse, "patchcore: unknown backend_type"};
-        }
-        ModelInfo info;
-        info.modelPath = it->second;
-        auto s = backend_->Load(info);
-        if (!s) return s;
-    } else {
-        net_ = cv::dnn::readNetFromONNX(it->second);
+    // 通过工厂方法创建 backbone 实例
+    backbone_ = CreateBackbone(backboneType, config);
+    if (!backbone_) {
+        return Status{StatusCode::ErrorConfigParse,
+            "patchcore: unknown backbone type: " + backboneType};
     }
+    auto s = backbone_->Init(config);
+    if (!s) return s;
 
+    // 加载预训练的记忆库文件（若配置中指定）
     auto mn = config.find("memory_bank_path");
     if (mn != config.end()) {
         if (!memoryBank_.Load(mn->second)) {
             return Status{StatusCode::ErrorModelLoad, "patchcore: cannot load memory bank"};
         }
-    }
-
-    auto layers = config.find("backbone_layers");
-    if (layers != config.end()) {
-        outputLayerNames_ = SplitLayerNames(layers->second);
     }
 
     auto is = config.find("input_size");
@@ -80,6 +48,12 @@ Status PatchCoreNode::Init(const NodeConfig& config) {
     return Status{};
 }
 
+// -------------------------------------------------------
+// 处理一帧图像：提取特征 → 与记忆库比对 → 生成异常热力图和评分
+// 输出帧包含：
+//   - anomaly_score: 图像级别的最大异常得分
+//   - is_anomaly: 是否异常（二值判定，基于 anomalyThreshold_）
+// -------------------------------------------------------
 Status PatchCoreNode::Process(const std::vector<Frame>& inputs,
                                std::vector<Frame>& outputs) {
     if (inputs.empty()) {
@@ -91,35 +65,37 @@ Status PatchCoreNode::Process(const std::vector<Frame>& inputs,
         return Status{StatusCode::ErrorPreprocess, "patchcore: empty image"};
     }
 
-    std::vector<PatchFeature> patchFeatures;
-    if (backboneType_ == "libtorch") {
-#ifdef AICORE_HAS_LIBTORCH
-        patchFeatures = ForwardLibTorch(img);
-#else
-        return Status{StatusCode::ErrorModelInfer, "patchcore: libtorch not available"};
-#endif
-    } else if (backboneType_ == "model_backend") {
-        patchFeatures = ForwardModelBackend(img);
-    } else {
-        cv::Mat blob = cv::dnn::blobFromImage(img, 1.0 / 255,
-            cv::Size(inputSize_, inputSize_),
-            cv::Scalar(0.485, 0.456, 0.406), true, false);
-        patchFeatures = ForwardOpenCVDnn(blob);
-    }
+    // Step 1: backbone 提取局部 Patch 特征
+    // backbone（如 WideResNet50）将输入图像映射到多层次特征图。
+    // 每一层特征图的一个空间位置对应输入图像的一个"感受野"区域（Patch）。
+    // 例如 layer3 输出 28×28×512 的特征图，则每个 Patch 对应约 16×16 像素的输入区域。
+    // 这些 Patch 特征编码了该区域的纹理、边缘、形状等视觉信息。
+    auto patchFeatures = backbone_->Extract(img);
     if (patchFeatures.empty()) {
         return Status{StatusCode::ErrorModelInfer, "patchcore: backbone returned no features"};
     }
 
+    // Step 2: 逐 Patch 与 MemoryBank 最近邻比对，生成异常热力图
+    // 对每个 Patch 特征向量 f_p，在记忆库中找最近邻 f_n，
+    // 异常得分 = ||f_p - f_n||₂（L2 距离）
+    // 得分越高 = 该 Patch 越"异常"（偏离正常特征分布）
     auto anomalyMap = memoryBank_.ComputeAnomalyMap(patchFeatures, img.rows, img.cols);
     if (anomalyMap.empty()) {
         return Status{StatusCode::ErrorInternal, "patchcore: anomaly map empty"};
     }
 
+    // Step 3: 将浮点热力图包装为 cv::Mat 并取最大值作为帧级异常得分
     cv::Mat scoreMap(img.rows, img.cols, CV_32F, anomalyMap.data());
 
     double maxVal = 0;
     cv::minMaxLoc(scoreMap, nullptr, &maxVal);
 
+    // Step 4: 异常判定
+    // is_anomaly = max(anomaly_map) > threshold
+    // 使用最大得分而非平均分的原因是：
+    //   如果图像中只有一小块区域异常（如微小划痕），平均分会淹没该信号，
+    //   而最大分能捕捉到局部异常。这也是 PatchCore 的论文设计。
+    // 构造输出帧，携带异常得分和判定结果
     Frame out(scoreMap.clone());
     out.roiMap["anomaly_score"] = static_cast<float>(maxVal);
     out.roiMap["is_anomaly"] = maxVal > anomalyThreshold_ ? 1.0f : 0.0f;
@@ -127,129 +103,5 @@ Status PatchCoreNode::Process(const std::vector<Frame>& inputs,
 
     return Status{};
 }
-
-std::vector<PatchFeature> PatchCoreNode::ForwardOpenCVDnn(const cv::Mat& blob) {
-    net_.setInput(blob);
-    std::vector<cv::Mat> outputs;
-    net_.forward(outputs, outputLayerNames_);
-
-    std::vector<PatchFeature> features;
-    for (int li = 0; li < static_cast<int>(outputs.size()); li++) {
-        auto& feat = outputs[li];
-        int channels = feat.size[1];
-        int h = feat.size[2];
-        int w = feat.size[3];
-        float* data = feat.ptr<float>();
-
-        for (int row = 0; row < h; row++) {
-            for (int col = 0; col < w; col++) {
-                PatchFeature pf;
-                pf.layerIdx = li;
-                pf.patchRow = row;
-                pf.patchCol = col;
-                pf.features.resize(channels);
-                for (int c = 0; c < channels; c++) {
-                    pf.features[c] = data[(c * h + row) * w + col];
-                }
-                features.push_back(pf);
-            }
-        }
-    }
-    return features;
-}
-
-std::vector<PatchFeature> PatchCoreNode::ForwardModelBackend(const cv::Mat& img) {
-    cv::Mat resized;
-    cv::resize(img, resized, cv::Size(inputSize_, inputSize_));
-    cv::Mat floatImg;
-    resized.convertTo(floatImg, CV_32F, 1.0 / 255);
-
-    Tensor input;
-    input.dtype = DataType::kFloat32;
-    input.shape = {1, 3, inputSize_, inputSize_};
-    input.bytes = 1 * 3 * inputSize_ * inputSize_ * sizeof(float);
-    std::vector<float> chw(input.bytes / sizeof(float));
-    float* src = floatImg.ptr<float>();
-    for (int c = 0; c < 3; c++)
-        for (int h = 0; h < inputSize_; h++)
-            for (int w = 0; w < inputSize_; w++)
-                chw[c * inputSize_ * inputSize_ + h * inputSize_ + w] = src[h * inputSize_ * 3 + w * 3 + c];
-    input.data = chw.data();
-
-    std::vector<Tensor> outputs;
-    auto s = backend_->Infer({input}, outputs);
-    if (!s) return {};
-
-    std::vector<PatchFeature> features;
-    for (auto& out : outputs) {
-        int channels = static_cast<int>(out.shape[1]);
-        int h = static_cast<int>(out.shape[2]);
-        int w = static_cast<int>(out.shape[3]);
-        float* data = static_cast<float*>(out.data);
-
-        for (int row = 0; row < h; row++) {
-            for (int col = 0; col < w; col++) {
-                PatchFeature pf;
-                pf.patchRow = row;
-                pf.patchCol = col;
-                pf.features.resize(channels);
-                for (int c = 0; c < channels; c++) {
-                    pf.features[c] = data[(c * h + row) * w + col];
-                }
-                features.push_back(pf);
-            }
-        }
-    }
-    return features;
-}
-
-#ifdef AICORE_HAS_LIBTORCH
-std::vector<PatchFeature> PatchCoreNode::ForwardLibTorch(const cv::Mat& img) {
-    cv::Mat resized;
-    cv::resize(img, resized, cv::Size(inputSize_, inputSize_));
-    cv::Mat rgb, floatImg;
-    cv::cvtColor(resized, rgb, cv::COLOR_BGR2RGB);
-    rgb.convertTo(floatImg, CV_32F, 1.0 / 255);
-
-    // HWC → CHW tensor
-    auto tensor = torch::from_blob(floatImg.data, {1, inputSize_, inputSize_, 3}, torch::kFloat);
-    tensor = tensor.permute({0, 3, 1, 2});
-
-    // Normalize (ImageNet mean/std)
-    tensor[0][0] = tensor[0][0].sub_(0.485).div_(0.229);
-    tensor[0][1] = tensor[0][1].sub_(0.456).div_(0.224);
-    tensor[0][2] = tensor[0][2].sub_(0.406).div_(0.225);
-
-    torch::NoGradGuard noGrad;
-
-    auto output = torchModule_.forward({tensor});
-    auto tuple = output.toTuple();
-    std::vector<PatchFeature> features;
-
-    for (int li = 0; li < static_cast<int>(tuple->elements().size()); li++) {
-        if (li >= static_cast<int>(outputLayerNames_.size())) break;
-        auto feat = tuple->elements()[li].toTensor().cpu().contiguous();
-        int channels = feat.size(1);
-        int h = feat.size(2);
-        int w = feat.size(3);
-        float* data = feat.data_ptr<float>();
-
-        for (int row = 0; row < h; row++) {
-            for (int col = 0; col < w; col++) {
-                PatchFeature pf;
-                pf.layerIdx = li;
-                pf.patchRow = row;
-                pf.patchCol = col;
-                pf.features.resize(channels);
-                for (int c = 0; c < channels; c++) {
-                    pf.features[c] = data[(c * h + row) * w + col];
-                }
-                features.push_back(pf);
-            }
-        }
-    }
-    return features;
-}
-#endif
 
 } // namespace aicore

@@ -1,8 +1,14 @@
+// ============================================================
+// 文件: tests/test_config_parser.cpp
+// 用途: 流水线配置解析器 (ConfigParser) 解析/序列化/错误处理测试
+// ============================================================
+
 #include <gtest/gtest.h>
 #include "config/config_parser.h"
 
 using namespace aicore;
 
+// 有效的流水线 JSON 测试数据（resize + tensorrt 模型）
 const char* kValidJson = R"({
     "pipeline": {
         "name": "test_pipeline",
@@ -30,6 +36,7 @@ const char* kValidJson = R"({
     }
 })";
 
+// 测试：解析有效 JSON 得到正确的流水线配置字段
 TEST(ConfigParserTest, ParseValidJson) {
     ConfigParser parser;
     PipelineConfig config;
@@ -43,6 +50,7 @@ TEST(ConfigParserTest, ParseValidJson) {
     ASSERT_EQ(config.edges.size(), 2);
 }
 
+// 测试：解析出的节点字段值正确
 TEST(ConfigParserTest, ParseNodes) {
     ConfigParser parser;
     PipelineConfig config;
@@ -59,6 +67,7 @@ TEST(ConfigParserTest, ParseNodes) {
     EXPECT_EQ(config.nodes[1].batchSize, 4);
 }
 
+// 测试：解析出的边连接关系正确
 TEST(ConfigParserTest, ParseEdges) {
     ConfigParser parser;
     PipelineConfig config;
@@ -70,6 +79,7 @@ TEST(ConfigParserTest, ParseEdges) {
     EXPECT_EQ(config.edges[1].to, "model_1");
 }
 
+// 测试：解析非法 JSON 返回失败并有错误信息
 TEST(ConfigParserTest, InvalidJson) {
     ConfigParser parser;
     PipelineConfig config;
@@ -78,6 +88,7 @@ TEST(ConfigParserTest, InvalidJson) {
     EXPECT_FALSE(parser.GetLastError().empty());
 }
 
+// 测试：序列化 → 重新解析后数据一致（往返测试）
 TEST(ConfigParserTest, SerializeRoundtrip) {
     ConfigParser parser;
     PipelineConfig config1;

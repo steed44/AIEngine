@@ -1,0 +1,449 @@
+{
+  "@context": {
+    "@vocab": "http://schema.org/",
+    "aicore": "https://github.com/steed44/AIEngine/ontology#"
+  },
+  "@graph": [
+    {
+      "@id": "aicore:Module/Core",
+      "@type": "aicore:Module",
+      "name": "core",
+      "description": "核心基础类型和接口定义",
+      "submodules": [
+        { "@id": "aicore:Interface/IAllocator" },
+        { "@id": "aicore:Interface/IProcessor" },
+        { "@id": "aicore:Interface/IPipeline" },
+        { "@id": "aicore:Interface/IModelBackend" }
+      ],
+      "types": [
+        { "@id": "aicore:Type/Frame" },
+        { "@id": "aicore:Type/Tensor" },
+        { "@id": "aicore:Type/Result" },
+        { "@id": "aicore:Type/Status" }
+      ]
+    },
+    {
+      "@id": "aicore:Module/PatchCore",
+      "@type": "aicore:Module",
+      "name": "patchcore",
+      "description": "PatchCore 异常检测完整实现",
+      "dependsOn": [{ "@id": "aicore:Module/Core" }, { "@id": "aicore:Module/Trainer" }]
+    },
+    {
+      "@id": "aicore:Module/Pipeline",
+      "@type": "aicore:Module",
+      "name": "pipeline/module",
+      "description": "管线编排层",
+      "dependsOn": [{ "@id": "aicore:Module/Core" }, { "@id": "aicore:Module/Engine" }, { "@id": "aicore:Module/Config" }]
+    },
+    {
+      "@id": "aicore:Module/Config",
+      "@type": "aicore:Module",
+      "name": "config",
+      "description": "配置解析和管线构建",
+      "dependsOn": [{ "@id": "aicore:Module/Core" }]
+    },
+    {
+      "@id": "aicore:Module/Engine",
+      "@type": "aicore:Module",
+      "name": "engine",
+      "description": "引擎层：线程池/模型池",
+      "dependsOn": [{ "@id": "aicore:Module/Core" }]
+    },
+    {
+      "@id": "aicore:Module/Backend",
+      "@type": "aicore:Module",
+      "name": "backend",
+      "description": "后端引擎实现（桩）",
+      "dependsOn": [{ "@id": "aicore:Module/Core" }]
+    },
+    {
+      "@id": "aicore:Module/Optimizer",
+      "@type": "aicore:Module",
+      "name": "optimizer",
+      "description": "模型优化器（桩实现）"
+    },
+    {
+      "@id": "aicore:Module/Trainer",
+      "@type": "aicore:Module",
+      "name": "trainer",
+      "description": "训练模块（桩实现）"
+    },
+    {
+      "@id": "aicore:Module/Preprocess",
+      "@type": "aicore:Module",
+      "name": "preprocess",
+      "description": "预处理节点",
+      "dependsOn": [{ "@id": "aicore:Module/Core" }]
+    },
+    {
+      "@id": "aicore:Module/Postprocess",
+      "@type": "aicore:Module",
+      "name": "postprocess",
+      "description": "后处理节点",
+      "dependsOn": [{ "@id": "aicore:Module/Core" }]
+    },
+    {
+      "@id": "aicore:Module/Cli",
+      "@type": "aicore:Module",
+      "name": "cli",
+      "description": "命令行工具入口",
+      "dependsOn": [
+        { "@id": "aicore:Module/PatchCore" },
+        { "@id": "aicore:Module/Optimizer" },
+        { "@id": "aicore:Module/Trainer" }
+      ]
+    },
+    {
+      "@id": "aicore:Module/Api",
+      "@type": "aicore:Module",
+      "name": "api",
+      "description": "C 语言外部 API",
+      "dependsOn": [{ "@id": "aicore:Module/Pipeline" }]
+    },
+
+    {
+      "@id": "aicore:Interface/IAllocator",
+      "@type": "aicore:Interface",
+      "name": "IAllocator",
+      "abstract": true
+    },
+    {
+      "@id": "aicore:Interface/IProcessor",
+      "@type": "aicore:Interface",
+      "name": "IProcessor",
+      "abstract": true,
+      "methods": ["Init(NodeConfig)", "Process(FrameList, FrameList)", "GetName()", "GetType()"]
+    },
+    {
+      "@id": "aicore:Interface/IPipeline",
+      "@type": "aicore:Interface",
+      "name": "IPipeline",
+      "abstract": true
+    },
+    {
+      "@id": "aicore:Interface/IModelBackend",
+      "@type": "aicore:Interface",
+      "name": "IModelBackend",
+      "abstract": true
+    },
+    {
+      "@id": "aicore:Interface/IDataset",
+      "@type": "aicore:Interface",
+      "name": "IDataset",
+      "abstract": true
+    },
+    {
+      "@id": "aicore:Interface/IBackbone",
+      "@type": "aicore:Interface",
+      "name": "IBackbone",
+      "abstract": true,
+      "methods": ["Init(NodeConfig)", "Extract(cv::Mat) → vector<PatchFeature>", "GetType() → string"]
+    },
+    {
+      "@id": "aicore:Interface/IAugmentation",
+      "@type": "aicore:Interface",
+      "name": "IAugmentation",
+      "abstract": true
+    },
+    {
+      "@id": "aicore:Interface/ITrainCallback",
+      "@type": "aicore:Interface",
+      "name": "ITrainCallback",
+      "abstract": true
+    },
+    {
+      "@id": "aicore:Interface/IModel",
+      "@type": "aicore:Interface",
+      "name": "IModel",
+      "abstract": true
+    },
+    {
+      "@id": "aicore:Interface/IAllocator",
+      "@type": "aicore:Interface",
+      "name": "IAllocator",
+      "abstract": true
+    },
+
+    {
+      "@id": "aicore:Class/OpenCVDnnBackbone",
+      "@type": "aicore:Class",
+      "name": "OpenCVDnnBackbone",
+      "implements": { "@id": "aicore:Interface/IBackbone" },
+      "description": "使用 OpenCV DNN 模块的 backbone 实现",
+      "key": "opencv_dnn",
+      "backend": "CPU"
+    },
+    {
+      "@id": "aicore:Class/ModelBackendBackbone",
+      "@type": "aicore:Class",
+      "name": "ModelBackendBackbone",
+      "implements": { "@id": "aicore:Interface/IBackbone" },
+      "description": "通过 IModelBackend 通用接口转发推理",
+      "key": "model_backend",
+      "backend": "onnxruntime/tensorrt/libtorch",
+      "delegatesTo": { "@id": "aicore:Interface/IModelBackend" }
+    },
+    {
+      "@id": "aicore:Class/LibTorchBackbone",
+      "@type": "aicore:Class",
+      "name": "LibTorchBackbone",
+      "implements": { "@id": "aicore:Interface/IBackbone" },
+      "description": "使用 LibTorch JIT 推理（条件编译 AICORE_HAS_LIBTORCH）",
+      "key": "libtorch",
+      "backend": "GPU (CUDA)",
+      "compileFlag": "AICORE_HAS_LIBTORCH"
+    },
+    {
+      "@id": "aicore:Class/PatchCoreNode",
+      "@type": "aicore:Class",
+      "name": "PatchCoreNode",
+      "implements": { "@id": "aicore:Interface/IProcessor" },
+      "description": "单 ROI PatchCore 异常检测管线节点",
+      "owns": { "@id": "aicore:Interface/IBackbone" },
+      "owns": { "@id": "aicore:Class/MemoryBank" },
+      "inferenceFlow": "Frame → backbone.Extract → MemoryBank.ComputeAnomalyMap → anomaly_map + score"
+    },
+    {
+      "@id": "aicore:Class/MultiRoiNode",
+      "@type": "aicore:Class",
+      "name": "MultiRoiNode",
+      "implements": { "@id": "aicore:Interface/IProcessor" },
+      "description": "多 ROI 共享 backbone 的异常检测节点",
+      "owns": { "@id": "aicore:Interface/IBackbone" },
+      "owns": { "@id": "aicore:Class/RoiModelSlot" },
+      "inferenceFlow": "Frame → for each RoiModelSlot: crop → backbone.Extract → slot.MemoryBank.ComputeAnomalyMap → overlay"
+    },
+    {
+      "@id": "aicore:Class/MemoryBank",
+      "@type": "aicore:Class",
+      "name": "MemoryBank",
+      "description": "正常特征记忆库，存储 PatchFeature 列表",
+      "stores": { "@id": "aicore:Struct/PatchFeature" },
+      "keyMethods": ["Build(vector<PatchFeature>)", "Save(path)", "Load(path)", "NearestNeighbor(query, distOut)", "ComputeAnomalyMap(queries, imgH, imgW)"]
+    },
+    {
+      "@id": "aicore:Class/CoresetSampler",
+      "@type": "aicore:Class",
+      "name": "CoresetSampler",
+      "description": "最远点采样（FPS）算法，用于压缩记忆库",
+      "keyMethods": ["Sample(vector<PatchFeature>, targetSize) → vector<size_t>"],
+      "operatesOn": { "@id": "aicore:Struct/PatchFeature" }
+    },
+    {
+      "@id": "aicore:Class/PatchCoreTrainer",
+      "@type": "aicore:Class",
+      "name": "PatchCoreTrainer",
+      "description": "PatchCore 单 ROI 训练编排器",
+      "uses": [
+        { "@id": "aicore:Interface/IBackbone" },
+        { "@id": "aicore:Class/CoresetSampler" },
+        { "@id": "aicore:Class/MemoryBank" }
+      ],
+      "trainingFlow": "IDataset → IBackbone.Extract → CoresetSampler.Sample → MemoryBank.Build → MemoryBank.Save"
+    },
+    {
+      "@id": "aicore:Class/RoiTrainer",
+      "@type": "aicore:Class",
+      "name": "RoiTrainer",
+      "description": "多 ROI 训练编排器，支持流式和批量两种模式",
+      "uses": [
+        { "@id": "aicore:Interface/IBackbone" },
+        { "@id": "aicore:Class/CoresetSampler" },
+        { "@id": "aicore:Class/MemoryBank" }
+      ],
+      "trainingFlow (streaming)": "list files → for each: imread → for each ROI: crop → backbone.Extract → accumulate → CoresetSampler → MemoryBank.Build → MemoryBank.Save",
+      "modes": ["streaming (default, auto-detect)", "batch (--no-stream)"]
+    },
+    {
+      "@id": "aicore:Class/PipelineImpl",
+      "@type": "aicore:Class",
+      "name": "PipelineImpl",
+      "implements": { "@id": "aicore:Interface/IPipeline" },
+      "description": "DAG 管线实现"
+    },
+
+    {
+      "@id": "aicore:Struct/PatchFeature",
+      "@type": "aicore:Struct",
+      "name": "PatchFeature",
+      "members": [
+        { "name": "features", "type": "vector<float>", "description": "特征向量" },
+        { "name": "layerIdx", "type": "int", "description": "来自 backbone 的层索引" },
+        { "name": "patchRow", "type": "int", "description": "patch 在特征图上的行位置" },
+        { "name": "patchCol", "type": "int", "description": "patch 在特征图上的列位置" }
+      ]
+    },
+    {
+      "@id": "aicore:Struct/MultiRoiConfig",
+      "@type": "aicore:Struct",
+      "name": "MultiRoiConfig",
+      "description": "多 ROI 完整配置，JSON 序列化/反序列化",
+      "members": [
+        { "name": "backboneType", "type": "string", "values": "opencv_dnn / model_backend / libtorch" },
+        { "name": "backendType", "type": "string", "values": "onnxruntime / tensorrt / libtorch", "note": "仅 model_backend 时生效" },
+        { "name": "backboneModelPath", "type": "string" },
+        { "name": "backboneLayers", "type": "string", "example": "layer2,layer3" },
+        { "name": "inputSize", "type": "int", "default": 224 },
+        { "name": "rois", "type": "vector<RoiDef>" },
+        { "name": "coresetFraction", "type": "double", "default": 0.1 },
+        { "name": "maxFeatures", "type": "size_t", "default": 100000 },
+        { "name": "anomalyThreshold", "type": "float", "default": 0.5 },
+        { "name": "modelDir", "type": "string", "default": "./models" }
+      ]
+    },
+    {
+      "@id": "aicore:Struct/RoiDef",
+      "@type": "aicore:Struct",
+      "name": "RoiDef",
+      "members": [
+        { "name": "id", "type": "string" },
+        { "name": "x", "type": "int" },
+        { "name": "y", "type": "int" },
+        { "name": "w", "type": "int" },
+        { "name": "h", "type": "int" }
+      ]
+    },
+    {
+      "@id": "aicore:Struct/RoiModelSlot",
+      "@type": "aicore:Struct",
+      "name": "RoiModelSlot",
+      "members": [
+        { "name": "roiId", "type": "string" },
+        { "name": "memoryBank", "type": "MemoryBank" },
+        { "name": "anomalyThreshold", "type": "float" },
+        { "name": "rect", "type": "cv::Rect" }
+      ]
+    },
+    {
+      "@id": "aicore:Struct/PatchCoreTrainConfig",
+      "@type": "aicore:Struct",
+      "name": "PatchCoreTrainConfig",
+      "members": [
+        { "name": "inputSize", "type": "int", "default": 224 },
+        { "name": "backboneLayers", "type": "string", "default": "layer2,layer3" },
+        { "name": "backboneType", "type": "string", "default": "opencv_dnn" },
+        { "name": "backendType", "type": "string", "default": "onnxruntime" },
+        { "name": "coresetFraction", "type": "double", "default": 0.1 },
+        { "name": "maxFeatures", "type": "size_t", "default": 100000 }
+      ]
+    },
+    {
+      "@id": "aicore:Struct/PipelineConfig",
+      "@type": "aicore:Struct",
+      "name": "PipelineConfig",
+      "members": ["nodes (vector<ProcessorConfig>)", "edges (vector<EdgeConfig>)", "maxConcurrency", "enableProfiling"]
+    },
+
+    {
+      "@id": "aicore:Factory/CreateBackbone",
+      "@type": "aicore:Factory",
+      "name": "CreateBackbone",
+      "signature": "unique_ptr<IBackbone> CreateBackbone(const string& type, const NodeConfig& config)",
+      "location": "patchcore/backbone.cpp",
+      "registry": [
+        { "key": "opencv_dnn", "product": { "@id": "aicore:Class/OpenCVDnnBackbone" } },
+        { "key": "model_backend", "product": { "@id": "aicore:Class/ModelBackendBackbone" } },
+        { "key": "libtorch", "product": { "@id": "aicore:Class/LibTorchBackbone" } }
+      ]
+    },
+    {
+      "@id": "aicore:Factory/BackendFactory",
+      "@type": "aicore:Factory",
+      "name": "BackendFactory",
+      "signature": "unique_ptr<IModelBackend> Create(BackendType type)",
+      "location": "backend/backend_factory.cpp",
+      "registry": [
+        { "key": "kONNXRuntime", "product": "ONNXRuntimeBackendStub" },
+        { "key": "kTensorRT", "product": "TensorRTBackendStub" },
+        { "key": "kLibTorch", "product": "LibTorchBackendStub" }
+      ],
+      "status": "stub"
+    },
+    {
+      "@id": "aicore:Factory/ModelFactory",
+      "@type": "aicore:Factory",
+      "name": "ModelFactory",
+      "location": "trainer/model/model_factory.cpp",
+      "status": "stub"
+    },
+    {
+      "@id": "aicore:Factory/PipelineBuilder",
+      "@type": "aicore:Factory",
+      "name": "PipelineBuilder",
+      "location": "config/pipeline_builder.cpp",
+      "description": "根据 PipelineConfig 构建 PipelineImpl"
+    },
+
+    {
+      "@id": "aicore:Flow/Training_Streaming",
+      "@type": "aicore:DataFlow",
+      "name": "训练数据流（流式）",
+      "steps": [
+        "MultiRoiConfig.FromJson(configPath) → cfg",
+        "FolderDataset.ListImageFiles(dataFolder) → imagePaths",
+        "CreateBackbone(cfg.backboneType, config) → backbone",
+        "for each imagePath: cv::imread → img",
+        "  for each roi (10): crop → backbone.Extract → append to roiFeatures[ri]",
+        "for each roi: shuffle + truncate (if > maxFeatures)",
+        "CoresetSampler.Sample(features, targetSize) → indices",
+        "MemoryBank.Build(coreFeatures)",
+        "MemoryBank.Save(modelDir/roiId.bin)"
+      ],
+      "peakMemory": "720MB (1 image) + ~2GB (features) ≈ 2.7GB"
+    },
+    {
+      "@id": "aicore:Flow/Training_Batch",
+      "@type": "aicore:DataFlow",
+      "name": "训练数据流（批量/旧）",
+      "steps": [
+        "MultiRoiConfig.FromJson(configPath) → cfg",
+        "FolderDataset.Load(dataFolder) → all 300 images in memory",
+        "for each roi: for each image: crop → Trainer.Train(roiDataset)",
+        "  Trainer.Train: backbone.Extract → CoresetSampler → MemoryBank.Build → Save"
+      ],
+      "peakMemory": "300 × 720MB ≈ 216GB"
+    },
+    {
+      "@id": "aicore:Flow/Inference_MultiROI",
+      "@type": "aicore:DataFlow",
+      "name": "推理数据流（多 ROI）",
+      "steps": [
+        "MultiRoiConfig.FromJson → MultiRoiNode::Init",
+        "CreateBackbone + Init → IBackbone backbone",
+        "for each roi: MemoryBank.Load(modelDir/roiId.bin) → RoiModelSlot",
+        "MultiRoiNode::Process(Frame):",
+        "  for each RoiModelSlot:",
+        "    crop(Frame, rect)",
+        "    backbone.Extract(crop) → features",
+        "    slot.memoryBank.ComputeAnomalyMap(features) → anomaly_map + score",
+        "    draw overlay (rectangle + score)",
+        "  merge all overlays → output Frame"
+      ]
+    },
+
+    {
+      "@id": "aicore:Decision/MemoryStrategy",
+      "@type": "aicore:DesignDecision",
+      "name": "流式 vs 批量内存策略",
+      "rationale": "300 张 12000×20000 大图 ≈ 216GB 无法全部加载",
+      "solution": "流式单次遍历：每张图只读一次，共享 backbone，所有 ROI 同时处理",
+      "autoDetect": "检查前 5 张图文件大小，>100MB 自动走流式",
+      "override": "--stream 强制流式 / --no-stream 强制批量"
+    },
+    {
+      "@id": "aicore:Decision/BackboneSharing",
+      "@type": "aicore:DesignDecision",
+      "name": "多 ROI 共享 backbone",
+      "rationale": "所有 ROI 共用同一种 backbone 网络，避免重复加载模型",
+      "implemented": true
+    },
+    {
+      "@id": "aicore:Decision/ThreeBackboneStrategy",
+      "@type": "aicore:DesignDecision",
+      "name": "三种 backbone + 策略模式",
+      "rationale": "opencv_dnn(CPU) + model_backend(通用) + libtorch(GPU) 三选一",
+      "implemented": true
+    }
+  ]
+}
