@@ -1,0 +1,1 @@
+{"nodes": [{"id": "trainer_api", "label": "trainer_api.h", "file_type": "code", "source_file": "aicore\\include\\trainer\\trainer_api.h", "source_location": "L1"}], "edges": [{"source": "trainer_api", "target": "types", "relation": "imports", "confidence": "EXTRACTED", "source_file": "aicore\\include\\trainer\\trainer_api.h", "source_location": "L5", "weight": 1.0}]}

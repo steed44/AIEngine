@@ -1,0 +1,155 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mxfile host="drawio" version="26.0.0">
+  <diagram name="推理流程时序图" id="inference">
+    <mxGraphModel dx="0" dy="0" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" pageScale="1" pageWidth="1200" pageHeight="1050" background="#ffffff">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+
+        <!-- Lifelines -->
+        <mxCell id="p1" value="&lt;b&gt;调用方 C API&lt;/b&gt;" style="shape=umlLifeline;perimeter=lifelinePerimeter;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="50" y="40" width="150" height="950" as="geometry"/>
+        </mxCell>
+        <mxCell id="p2" value="&lt;b&gt;Pipeline 管线引擎&lt;/b&gt;" style="shape=umlLifeline;perimeter=lifelinePerimeter;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="260" y="40" width="150" height="950" as="geometry"/>
+        </mxCell>
+        <mxCell id="p3" value="&lt;b&gt;PatchCoreNode&lt;/b&gt;&lt;br&gt;(异常检测节点)" style="shape=umlLifeline;perimeter=lifelinePerimeter;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="470" y="40" width="150" height="950" as="geometry"/>
+        </mxCell>
+        <mxCell id="p4" value="&lt;b&gt;IBackbone&lt;/b&gt;&lt;br&gt;(特征提取器)" style="shape=umlLifeline;perimeter=lifelinePerimeter;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="680" y="40" width="140" height="950" as="geometry"/>
+        </mxCell>
+        <mxCell id="p5" value="&lt;b&gt;MemoryBank&lt;/b&gt;&lt;br&gt;(记忆库)" style="shape=umlLifeline;perimeter=lifelinePerimeter;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="890" y="40" width="140" height="950" as="geometry"/>
+        </mxCell>
+
+        <!-- Activation bars -->
+        <mxCell id="act2" value="" style="fillColor=none;strokeColor=#000000;strokeWidth=2;pointerEvents=1;" vertex="1" parent="1">
+          <mxGeometry x="328" y="410" width="14" height="460" as="geometry"/>
+        </mxCell>
+        <mxCell id="act3" value="" style="fillColor=none;strokeColor=#000000;strokeWidth=2;pointerEvents=1;" vertex="1" parent="1">
+          <mxGeometry x="538" y="510" width="14" height="300" as="geometry"/>
+        </mxCell>
+
+        <!-- === Phase 1: 构建阶段 === -->
+
+        <!-- s1: CLI → Pipeline: Build -->
+        <mxCell id="s1" value="Build(jsonConfig)" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;verticalAlign=bottom;endArrow=block;fontSize=11;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="125" y="130" as="sourcePoint"/>
+            <mxPoint x="335" y="130" as="targetPoint"/>
+          </mxGeometry>
+        </mxCell>
+
+        <!-- s2: Pipeline → PatchCoreNode: Init -->
+        <mxCell id="s2" value="Init(params)" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;verticalAlign=bottom;endArrow=block;fontSize=11;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="335" y="190" as="sourcePoint"/>
+            <mxPoint x="545" y="190" as="targetPoint"/>
+          </mxGeometry>
+        </mxCell>
+
+        <!-- s3: PatchCoreNode → Backbone: Init -->
+        <mxCell id="s3" value="Init(config) 加载模型文件" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;verticalAlign=bottom;endArrow=block;fontSize=11;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="545" y="250" as="sourcePoint"/>
+            <mxPoint x="750" y="250" as="targetPoint"/>
+          </mxGeometry>
+        </mxCell>
+
+        <!-- s4: PatchCoreNode → MemoryBank: Load -->
+        <mxCell id="s4" value="Load(bankPath) 加载 .bin 记忆库" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;verticalAlign=bottom;endArrow=block;fontSize=11;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="545" y="310" as="sourcePoint"/>
+            <mxPoint x="960" y="310" as="targetPoint"/>
+          </mxGeometry>
+        </mxCell>
+
+        <!-- s5: Pipeline → CLI: return (return) -->
+        <mxCell id="s5" value="返回 IPipeline 句柄" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;verticalAlign=bottom;dashed=1;endArrow=open;strokeColor=#999999;fontSize=11;fontColor=#666666;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="335" y="370" as="sourcePoint"/>
+            <mxPoint x="125" y="370" as="targetPoint"/>
+          </mxGeometry>
+        </mxCell>
+
+        <!-- Phase divider -->
+        <mxCell id="divider" value="&lt;b&gt;— 执行阶段 —&lt;/b&gt;" style="text;html=1;align=center;verticalAlign=middle;fontSize=12;fontColor=#999999;strokeColor=none;fillColor=none;" vertex="1" parent="1">
+          <mxGeometry x="350" y="395" width="200" height="20" as="geometry"/>
+        </mxCell>
+
+        <!-- === Phase 2: 执行阶段 === -->
+
+        <!-- e1: CLI → Pipeline: Execute -->
+        <mxCell id="e1" value="Execute(inputFrame)" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;verticalAlign=bottom;endArrow=block;fontSize=11;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="125" y="440" as="sourcePoint"/>
+            <mxPoint x="335" y="440" as="targetPoint"/>
+          </mxGeometry>
+        </mxCell>
+
+        <!-- DAG loop frame -->
+        <mxCell id="loop" value="&lt;b&gt;loop&lt;/b&gt; [DAG调度: 轮询就绪节点]" style="rounded=0;dashed=1;fillColor=none;strokeColor=#666666;html=1;whiteSpace=wrap;fontSize=12;fontColor=#333333;verticalAlign=top;align=left;spacingLeft=6;spacingTop=4;" vertex="1" parent="1">
+          <mxGeometry x="255" y="480" width="780" height="340" as="geometry"/>
+        </mxCell>
+
+        <!-- e2: Pipeline → PatchCoreNode: Process -->
+        <mxCell id="e2" value="Process(inputs)" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;verticalAlign=bottom;endArrow=block;fontSize=11;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="335" y="540" as="sourcePoint"/>
+            <mxPoint x="545" y="540" as="targetPoint"/>
+          </mxGeometry>
+        </mxCell>
+
+        <!-- e3: PatchCoreNode → Backbone: Extract -->
+        <mxCell id="e3" value="Extract(image) → 特征提取" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;verticalAlign=bottom;endArrow=block;fontSize=11;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="545" y="600" as="sourcePoint"/>
+            <mxPoint x="750" y="600" as="targetPoint"/>
+          </mxGeometry>
+        </mxCell>
+
+        <!-- e4: Backbone → PatchCoreNode: return (return) -->
+        <mxCell id="e4" value="返回 PatchFeatures" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;verticalAlign=bottom;dashed=1;endArrow=open;strokeColor=#999999;fontSize=11;fontColor=#666666;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="750" y="650" as="sourcePoint"/>
+            <mxPoint x="545" y="650" as="targetPoint"/>
+          </mxGeometry>
+        </mxCell>
+
+        <!-- e5: PatchCoreNode → MemoryBank: ComputeAnomalyMap -->
+        <mxCell id="e5" value="ComputeAnomalyMap(features, h, w)" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;verticalAlign=bottom;endArrow=block;fontSize=11;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="545" y="710" as="sourcePoint"/>
+            <mxPoint x="960" y="710" as="targetPoint"/>
+          </mxGeometry>
+        </mxCell>
+
+        <!-- e6: MemoryBank → PatchCoreNode: return (return) -->
+        <mxCell id="e6" value="返回 anomalyMap (异常热图)" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;verticalAlign=bottom;dashed=1;endArrow=open;strokeColor=#999999;fontSize=11;fontColor=#666666;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="960" y="760" as="sourcePoint"/>
+            <mxPoint x="545" y="760" as="targetPoint"/>
+          </mxGeometry>
+        </mxCell>
+
+        <!-- e7: PatchCoreNode → Pipeline: return (return) -->
+        <mxCell id="e7" value="输出 Frame(scoreMap, roiMap)" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;verticalAlign=bottom;dashed=1;endArrow=open;strokeColor=#999999;fontSize=11;fontColor=#666666;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="545" y="810" as="sourcePoint"/>
+            <mxPoint x="335" y="810" as="targetPoint"/>
+          </mxGeometry>
+        </mxCell>
+
+        <!-- e8: Pipeline → CLI: return final result -->
+        <mxCell id="e8" value="返回 Result.detections" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;verticalAlign=bottom;dashed=1;endArrow=open;strokeColor=#999999;fontSize=11;fontColor=#666666;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="335" y="870" as="sourcePoint"/>
+            <mxPoint x="125" y="870" as="targetPoint"/>
+          </mxGeometry>
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

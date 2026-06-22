@@ -1,0 +1,315 @@
+<mxfile>
+  <diagram id="autolayout" name="Page-1">
+    <mxGraphModel dx="800" dy="600" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="850" pageHeight="1100" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+        <mxCell id="group_0" value="DLL 层" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#6c8ebf;fontColor=#6c8ebf;verticalAlign=top;fontStyle=2;dashed=1;" vertex="1" parent="1">
+          <mxGeometry x="976" y="142" width="1302" height="476" as="geometry"/>
+        </mxCell>
+        <mxCell id="group_1" value="PatchCore 异常检测" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#d6b656;fontColor=#d6b656;verticalAlign=top;fontStyle=2;dashed=1;" vertex="1" parent="1">
+          <mxGeometry x="456" y="476" width="508" height="368" as="geometry"/>
+        </mxCell>
+        <mxCell id="group_2" value="优化模块" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#d79b00;fontColor=#d79b00;verticalAlign=top;fontStyle=2;dashed=1;" vertex="1" parent="1">
+          <mxGeometry x="2546" y="166" width="308" height="308" as="geometry"/>
+        </mxCell>
+        <mxCell id="group_3" value="命令行 &amp; UI" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#b85450;fontColor=#b85450;verticalAlign=top;fontStyle=2;dashed=1;" vertex="1" parent="1">
+          <mxGeometry x="1856" y="6" width="998" height="128" as="geometry"/>
+        </mxCell>
+        <mxCell id="group_4" value="推理后端" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#82b366;fontColor=#82b366;verticalAlign=top;fontStyle=2;dashed=1;" vertex="1" parent="1">
+          <mxGeometry x="1536" y="736" width="448" height="98" as="geometry"/>
+        </mxCell>
+        <mxCell id="group_5" value="推理服务器 &amp; 调度器" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#666666;fontColor=#666666;verticalAlign=top;fontStyle=2;dashed=1;" vertex="1" parent="1">
+          <mxGeometry x="2286" y="166" width="188" height="208" as="geometry"/>
+        </mxCell>
+        <mxCell id="group_6" value="训练模块" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#9673a6;fontColor=#9673a6;verticalAlign=top;fontStyle=2;dashed=1;" vertex="1" parent="1">
+          <mxGeometry x="6" y="626" width="448" height="218" as="geometry"/>
+        </mxCell>
+        <mxCell id="group_7" value="aicore.dll 内部" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#6c8ebf;fontColor=#6c8ebf;verticalAlign=top;fontStyle=2;dashed=1;" vertex="1" parent="group_0">
+          <mxGeometry x="560" y="24" width="718" height="428" as="geometry"/>
+        </mxCell>
+        <mxCell id="aicore_dll" value="aicore.dll
+推理核心 DLL" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="group_0">
+          <mxGeometry x="374" y="48" width="160" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="optimizer_dll" value="aicore_optimizer.dll
+模型优化工具 DLL" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="group_0">
+          <mxGeometry x="194" y="48" width="160" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="trainer_dll" value="aicore_trainer.dll
+训练模块 DLL" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="group_0">
+          <mxGeometry x="24" y="48" width="160" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="c_api" value="C API
+aicore_api.h" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="group_7">
+          <mxGeometry x="544" y="24" width="120" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="config_parser" value="ConfigParser
+JSON 配置解析" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="group_7">
+          <mxGeometry x="504" y="124" width="120" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="pipeline" value="Pipeline Engine
+DAG 执行器" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="group_7">
+          <mxGeometry x="434" y="224" width="120" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="threadpool" value="ThreadPool
+线程池" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="group_7">
+          <mxGeometry x="164" y="334" width="120" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="enginepool" value="EnginePool
+GPU 引擎池" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="group_7">
+          <mxGeometry x="574" y="334" width="120" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="pipeline_nodes" value="Pipeline Nodes
+resize / normalize / model
+nms / merge / composite" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="group_7">
+          <mxGeometry x="24" y="324" width="120" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="patchcore_node" value="PatchCoreNode
+异常检测节点" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="group_7">
+          <mxGeometry x="304" y="334" width="120" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="multi_roi_node" value="MultiRoiNode
+多 ROI 推理节点" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="group_7">
+          <mxGeometry x="434" y="334" width="120" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="tensorrt_backend" value="TensorRT
+Backend" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="group_4">
+          <mxGeometry x="24" y="24" width="120" height="50" as="geometry"/>
+        </mxCell>
+        <mxCell id="onnx_backend" value="ONNX Runtime
+Backend" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="group_4">
+          <mxGeometry x="304" y="24" width="120" height="50" as="geometry"/>
+        </mxCell>
+        <mxCell id="libtorch_backend" value="LibTorch
+Backend" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="group_4">
+          <mxGeometry x="164" y="24" width="120" height="50" as="geometry"/>
+        </mxCell>
+        <mxCell id="model_optimizer" value="ModelOptimizer
+编排器" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;" vertex="1" parent="group_2">
+          <mxGeometry x="114" y="24" width="120" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="onnx_exporter" value="OnnxExporter
+ONNX 导出" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;" vertex="1" parent="group_2">
+          <mxGeometry x="24" y="124" width="120" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="tensorrt_builder" value="TensorRTBuilder
+引擎构建 + INT8校准" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;" vertex="1" parent="group_2">
+          <mxGeometry x="164" y="124" width="120" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="python_embedding" value="PythonEmbedding
+Python 嵌入层" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;" vertex="1" parent="group_2">
+          <mxGeometry x="24" y="224" width="120" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="training_loop" value="TrainingLoop
+训练循环" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="group_6">
+          <mxGeometry x="214" y="24" width="120" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="data_loader" value="DataLoader / Dataset
+数据加载" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="group_6">
+          <mxGeometry x="304" y="134" width="120" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="checkpoint" value="Checkpoint / Validator
+模型验证" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="group_6">
+          <mxGeometry x="24" y="134" width="120" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="model_factory" value="ModelFactory
+简易 CNN" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="group_6">
+          <mxGeometry x="164" y="134" width="120" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="ibackbone" value="IBackbone
+特征提取抽象" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="group_1">
+          <mxGeometry x="344" y="174" width="140" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="backbones" value="LibTorchBackbone
+OpenCVBackbone
+ModelBackbone" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="group_1">
+          <mxGeometry x="344" y="274" width="140" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="memory_bank" value="MemoryBank
+特征存储库" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="group_1">
+          <mxGeometry x="184" y="174" width="140" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="coreset" value="CoresetSampler
+降采样" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="group_1">
+          <mxGeometry x="184" y="284" width="140" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="roi_trainer" value="RoiTrainer
+多 ROI 训练器" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="group_1">
+          <mxGeometry x="264" y="24" width="140" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="folder_dataset" value="FolderDataset
+图像数据集" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="group_1">
+          <mxGeometry x="24" y="174" width="140" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="ui" value="AICoreUI.exe
+Qt5 上位机" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="group_3">
+          <mxGeometry x="294" y="34" width="120" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="cli_patchcore" value="PatchCoreTrain.exe
+PatchCore 训练" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="group_3">
+          <mxGeometry x="434" y="34" width="120" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="cli_roi_train" value="RoiTrain.exe
+多 ROI 训练" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="group_3">
+          <mxGeometry x="164" y="34" width="120" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="cli_roi_infer" value="RoiInfer.exe
+多 ROI 推理" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="group_3">
+          <mxGeometry x="854" y="34" width="120" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="cli_optimizer" value="ModelOptimizer.exe
+模型优化" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="group_3">
+          <mxGeometry x="574" y="34" width="120" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="cli_trainer" value="AICoreTrainer.exe
+通用训练" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="group_3">
+          <mxGeometry x="24" y="34" width="120" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="gpu_scheduler" value="GPU Scheduler
+显存调度器 (设计)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;" vertex="1" parent="group_5">
+          <mxGeometry x="24" y="24" width="140" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="inference_server" value="InferenceServer
+高吞吐推理服务器 (设计)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;" vertex="1" parent="group_5">
+          <mxGeometry x="24" y="124" width="140" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="python_scripts" value="Python 脚本
+导出 / 训练
+(export_onnx / train_yolo
+/ export_patchcore)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="group_3">
+          <mxGeometry x="714" y="24" width="120" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="e0" value="" style="html=1;rounded=0;" edge="1" parent="1" source="ui" target="c_api">
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="2180" y="100"/><mxPoint x="2180" y="180"/></Array></mxGeometry>
+        </mxCell>
+        <mxCell id="e1" value="" style="html=1;rounded=0;" edge="1" parent="1" source="cli_patchcore" target="patchcore_node">
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="2300" y="120"/><mxPoint x="2300" y="140"/><mxPoint x="2300" y="140"/><mxPoint x="2300" y="140"/><mxPoint x="1920" y="140"/><mxPoint x="1920" y="140"/><mxPoint x="1920" y="140"/><mxPoint x="1920" y="490"/></Array></mxGeometry>
+        </mxCell>
+        <mxCell id="e2" value="" style="html=1;rounded=0;" edge="1" parent="1" source="cli_roi_train" target="roi_trainer">
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="2030" y="100"/><mxPoint x="2030" y="110"/><mxPoint x="2030" y="110"/><mxPoint x="2030" y="110"/><mxPoint x="790" y="110"/><mxPoint x="790" y="110"/><mxPoint x="790" y="110"/><mxPoint x="790" y="490"/></Array></mxGeometry>
+        </mxCell>
+        <mxCell id="e3" value="" style="html=1;rounded=0;" edge="1" parent="1" source="cli_roi_infer" target="multi_roi_node">
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="2740" y="130"/><mxPoint x="2740" y="160"/><mxPoint x="2740" y="160"/><mxPoint x="2740" y="160"/><mxPoint x="1970" y="160"/><mxPoint x="1970" y="160"/><mxPoint x="1970" y="160"/><mxPoint x="1970" y="530"/><mxPoint x="1970" y="530"/><mxPoint x="1970" y="530"/><mxPoint x="1970" y="530"/></Array></mxGeometry>
+        </mxCell>
+        <mxCell id="e4" value="" style="html=1;rounded=0;" edge="1" parent="1" source="cli_optimizer" target="model_optimizer">
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="2500" y="150"/><mxPoint x="2500" y="220"/><mxPoint x="2500" y="220"/><mxPoint x="2500" y="220"/><mxPoint x="2640" y="220"/></Array></mxGeometry>
+        </mxCell>
+        <mxCell id="e5" value="" style="html=1;rounded=0;" edge="1" parent="1" source="cli_trainer" target="training_loop">
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="1580" y="70"/><mxPoint x="280" y="70"/><mxPoint x="280" y="70"/><mxPoint x="280" y="70"/><mxPoint x="280" y="640"/></Array></mxGeometry>
+        </mxCell>
+        <mxCell id="e6" value="" style="html=1;rounded=0;" edge="1" parent="1" source="python_scripts" target="onnx_exporter">
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="2610" y="110"/><mxPoint x="2610" y="280"/></Array></mxGeometry>
+        </mxCell>
+        <mxCell id="e7" value="" style="html=1;rounded=0;" edge="1" parent="1" source="python_scripts" target="patchcore_node">
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="2390" y="110"/><mxPoint x="1900" y="110"/><mxPoint x="1900" y="110"/><mxPoint x="1900" y="110"/><mxPoint x="1900" y="490"/></Array></mxGeometry>
+        </mxCell>
+        <mxCell id="e8" value="" style="html=1;rounded=0;" edge="1" parent="1" source="c_api" target="config_parser">
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="2120" y="250"/><mxPoint x="2120" y="280"/></Array></mxGeometry>
+        </mxCell>
+        <mxCell id="e9" value="" style="html=1;rounded=0;" edge="1" parent="1" source="config_parser" target="pipeline">
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="2070" y="350"/><mxPoint x="2070" y="380"/></Array></mxGeometry>
+        </mxCell>
+        <mxCell id="e10" value="" style="html=1;rounded=0;" edge="1" parent="1" source="pipeline" target="pipeline_nodes">
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="2010" y="470"/><mxPoint x="2010" y="500"/><mxPoint x="2010" y="500"/><mxPoint x="2010" y="500"/><mxPoint x="1690" y="500"/></Array></mxGeometry>
+        </mxCell>
+        <mxCell id="e11" value="" style="html=1;rounded=0;" edge="1" parent="1" source="pipeline" target="patchcore_node">
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="1950" y="430"/><mxPoint x="1940" y="430"/><mxPoint x="1940" y="430"/><mxPoint x="1940" y="430"/><mxPoint x="1940" y="490"/></Array></mxGeometry>
+        </mxCell>
+        <mxCell id="e12" value="" style="html=1;rounded=0;" edge="1" parent="1" source="pipeline" target="multi_roi_node">
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="2050" y="450"/><mxPoint x="2050" y="490"/></Array></mxGeometry>
+        </mxCell>
+        <mxCell id="e13" value="" style="html=1;rounded=0;" edge="1" parent="1" source="pipeline" target="threadpool">
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="1890" y="410"/><mxPoint x="1760" y="410"/><mxPoint x="1760" y="410"/><mxPoint x="1760" y="410"/><mxPoint x="1760" y="490"/></Array></mxGeometry>
+        </mxCell>
+        <mxCell id="e14" value="" style="html=1;rounded=0;" edge="1" parent="1" source="pipeline" target="enginepool">
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="2120" y="430"/><mxPoint x="2140" y="430"/><mxPoint x="2140" y="430"/><mxPoint x="2140" y="430"/><mxPoint x="2140" y="490"/></Array></mxGeometry>
+        </mxCell>
+        <mxCell id="e15" value="" style="html=1;rounded=0;" edge="1" parent="1" source="pipeline_nodes" target="tensorrt_backend">
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="1620" y="580"/><mxPoint x="1620" y="750"/></Array></mxGeometry>
+        </mxCell>
+        <mxCell id="e16" value="" style="html=1;rounded=0;" edge="1" parent="1" source="pipeline_nodes" target="onnx_backend">
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="1770" y="570"/><mxPoint x="1930" y="570"/><mxPoint x="1930" y="570"/><mxPoint x="1930" y="570"/><mxPoint x="1930" y="750"/></Array></mxGeometry>
+        </mxCell>
+        <mxCell id="e17" value="" style="html=1;rounded=0;" edge="1" parent="1" source="pipeline_nodes" target="libtorch_backend">
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="1720" y="570"/><mxPoint x="1760" y="570"/><mxPoint x="1760" y="570"/><mxPoint x="1760" y="570"/><mxPoint x="1760" y="750"/></Array></mxGeometry>
+        </mxCell>
+        <mxCell id="e18" value="" style="html=1;rounded=0;" edge="1" parent="1" source="patchcore_node" target="memory_bank">
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="1870" y="580"/><mxPoint x="1870" y="590"/><mxPoint x="1870" y="590"/><mxPoint x="1870" y="590"/><mxPoint x="750" y="590"/><mxPoint x="750" y="590"/><mxPoint x="750" y="590"/><mxPoint x="750" y="640"/></Array></mxGeometry>
+        </mxCell>
+        <mxCell id="e19" value="" style="html=1;rounded=0;" edge="1" parent="1" source="patchcore_node" target="ibackbone">
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="1900" y="600"/><mxPoint x="1900" y="670"/><mxPoint x="1900" y="670"/><mxPoint x="1900" y="670"/><mxPoint x="950" y="670"/></Array></mxGeometry>
+        </mxCell>
+        <mxCell id="e20" value="" style="html=1;rounded=0;" edge="1" parent="1" source="multi_roi_node" target="ibackbone">
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="2050" y="610"/><mxPoint x="2050" y="680"/><mxPoint x="2050" y="680"/><mxPoint x="2050" y="680"/><mxPoint x="950" y="680"/></Array></mxGeometry>
+        </mxCell>
+        <mxCell id="e21" value="" style="html=1;rounded=0;" edge="1" parent="1" source="multi_roi_node" target="memory_bank">
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="2010" y="590"/><mxPoint x="2010" y="610"/><mxPoint x="2010" y="610"/><mxPoint x="2010" y="610"/><mxPoint x="770" y="610"/><mxPoint x="770" y="610"/><mxPoint x="770" y="610"/><mxPoint x="770" y="640"/></Array></mxGeometry>
+        </mxCell>
+        <mxCell id="e22" value="" style="html=1;rounded=0;" edge="1" parent="1" source="ibackbone" target="backbones">
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="870" y="720"/><mxPoint x="870" y="740"/></Array></mxGeometry>
+        </mxCell>
+        <mxCell id="e23" value="" style="html=1;rounded=0;" edge="1" parent="1" source="ibackbone" target="tensorrt_backend">
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="1120" y="700"/><mxPoint x="1590" y="700"/><mxPoint x="1590" y="700"/><mxPoint x="1590" y="700"/><mxPoint x="1590" y="750"/></Array></mxGeometry>
+        </mxCell>
+        <mxCell id="e24" value="" style="html=1;rounded=0;" edge="1" parent="1" source="ibackbone" target="libtorch_backend">
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="1150" y="690"/><mxPoint x="1730" y="690"/><mxPoint x="1730" y="690"/><mxPoint x="1730" y="690"/><mxPoint x="1730" y="750"/></Array></mxGeometry>
+        </mxCell>
+        <mxCell id="e25" value="" style="html=1;rounded=0;" edge="1" parent="1" source="memory_bank" target="coreset">
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="710" y="720"/><mxPoint x="710" y="740"/></Array></mxGeometry>
+        </mxCell>
+        <mxCell id="e26" value="" style="html=1;rounded=0;" edge="1" parent="1" source="roi_trainer" target="folder_dataset">
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="650" y="530"/><mxPoint x="550" y="530"/><mxPoint x="550" y="530"/><mxPoint x="550" y="530"/><mxPoint x="550" y="640"/></Array></mxGeometry>
+        </mxCell>
+        <mxCell id="e27" value="" style="html=1;rounded=0;" edge="1" parent="1" source="roi_trainer" target="ibackbone">
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="830" y="570"/><mxPoint x="830" y="640"/></Array></mxGeometry>
+        </mxCell>
+        <mxCell id="e28" value="" style="html=1;rounded=0;" edge="1" parent="1" source="roi_trainer" target="memory_bank">
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="740" y="570"/><mxPoint x="740" y="640"/></Array></mxGeometry>
+        </mxCell>
+        <mxCell id="e29" value="" style="html=1;rounded=0;" edge="1" parent="1" source="folder_dataset" target="data_loader">
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="440" y="680"/><mxPoint x="380" y="680"/><mxPoint x="380" y="680"/><mxPoint x="380" y="680"/><mxPoint x="380" y="740"/></Array></mxGeometry>
+        </mxCell>
+        <mxCell id="e30" value="" style="html=1;rounded=0;" edge="1" parent="1" source="training_loop" target="data_loader">
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="320" y="720"/><mxPoint x="320" y="740"/></Array></mxGeometry>
+        </mxCell>
+        <mxCell id="e31" value="" style="html=1;rounded=0;" edge="1" parent="1" source="training_loop" target="model_factory">
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="250" y="720"/><mxPoint x="250" y="740"/></Array></mxGeometry>
+        </mxCell>
+        <mxCell id="e32" value="" style="html=1;rounded=0;" edge="1" parent="1" source="training_loop" target="checkpoint">
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="160" y="680"/><mxPoint x="90" y="680"/><mxPoint x="90" y="680"/><mxPoint x="90" y="680"/><mxPoint x="90" y="740"/></Array></mxGeometry>
+        </mxCell>
+        <mxCell id="e33" value="" style="html=1;rounded=0;" edge="1" parent="1" source="model_optimizer" target="onnx_exporter">
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="2670" y="250"/><mxPoint x="2670" y="280"/></Array></mxGeometry>
+        </mxCell>
+        <mxCell id="e34" value="" style="html=1;rounded=0;" edge="1" parent="1" source="model_optimizer" target="tensorrt_builder">
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="2740" y="250"/><mxPoint x="2740" y="280"/></Array></mxGeometry>
+        </mxCell>
+        <mxCell id="e35" value="" style="html=1;rounded=0;" edge="1" parent="1" source="tensorrt_builder" target="python_embedding">
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="2770" y="380"/><mxPoint x="2770" y="420"/><mxPoint x="2770" y="420"/><mxPoint x="2770" y="420"/><mxPoint x="2700" y="420"/></Array></mxGeometry>
+        </mxCell>
+        <mxCell id="e36" value="" style="html=1;rounded=0;" edge="1" parent="1" source="onnx_exporter" target="libtorch_backend">
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="2630" y="360"/><mxPoint x="2630" y="370"/><mxPoint x="2630" y="370"/><mxPoint x="2630" y="370"/><mxPoint x="1830" y="370"/><mxPoint x="1830" y="370"/><mxPoint x="1830" y="370"/><mxPoint x="1830" y="790"/><mxPoint x="1830" y="790"/><mxPoint x="1830" y="790"/><mxPoint x="1830" y="790"/></Array></mxGeometry>
+        </mxCell>
+        <mxCell id="e37" value="" style="html=1;rounded=0;" edge="1" parent="1" source="enginepool" target="tensorrt_backend">
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="2170" y="590"/><mxPoint x="2170" y="630"/><mxPoint x="2170" y="630"/><mxPoint x="2170" y="630"/><mxPoint x="1650" y="630"/><mxPoint x="1650" y="630"/><mxPoint x="1650" y="630"/><mxPoint x="1650" y="750"/></Array></mxGeometry>
+        </mxCell>
+        <mxCell id="e38" value="" style="html=1;rounded=0;" edge="1" parent="1" source="enginepool" target="onnx_backend">
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="2200" y="630"/><mxPoint x="2200" y="790"/><mxPoint x="2200" y="790"/><mxPoint x="2200" y="790"/><mxPoint x="1970" y="790"/></Array></mxGeometry>
+        </mxCell>
+        <mxCell id="e39" value="" style="html=1;rounded=0;" edge="1" parent="1" source="enginepool" target="libtorch_backend">
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="2140" y="570"/><mxPoint x="2140" y="570"/><mxPoint x="2140" y="570"/><mxPoint x="2140" y="570"/><mxPoint x="1790" y="570"/><mxPoint x="1790" y="570"/><mxPoint x="1790" y="570"/><mxPoint x="1790" y="750"/></Array></mxGeometry>
+        </mxCell>
+        <mxCell id="e40" value="" style="html=1;rounded=0;" edge="1" parent="1" source="gpu_scheduler" target="inference_server">
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="2380" y="250"/><mxPoint x="2380" y="280"/></Array></mxGeometry>
+        </mxCell>
+        <mxCell id="e41" value="" style="html=1;rounded=0;" edge="1" parent="1" source="inference_server" target="pipeline">
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="2380" y="380"/><mxPoint x="2380" y="410"/><mxPoint x="2380" y="410"/><mxPoint x="2380" y="410"/><mxPoint x="2110" y="410"/></Array></mxGeometry>
+        </mxCell>
+        <mxCell id="e42" value="" style="html=1;rounded=0;" edge="1" parent="1" source="inference_server" target="enginepool">
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="2270" y="320"/><mxPoint x="2210" y="320"/><mxPoint x="2210" y="320"/><mxPoint x="2210" y="320"/><mxPoint x="2210" y="490"/></Array></mxGeometry>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

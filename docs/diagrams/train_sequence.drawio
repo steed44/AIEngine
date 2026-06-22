@@ -1,0 +1,124 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mxfile host="drawio" version="26.0.0">
+  <diagram name="训练流程时序图" id="training">
+    <mxGraphModel dx="0" dy="0" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" pageScale="1" pageWidth="1400" pageHeight="1000" background="#ffffff">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+
+        <!-- Lifelines -->
+        <mxCell id="p1" value="&lt;b&gt;main() CLI&lt;/b&gt;" style="shape=umlLifeline;perimeter=lifelinePerimeter;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="50" y="40" width="150" height="880" as="geometry"/>
+        </mxCell>
+        <mxCell id="p2" value="&lt;b&gt;PatchCoreTrainer&lt;/b&gt;" style="shape=umlLifeline;perimeter=lifelinePerimeter;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="280" y="40" width="150" height="880" as="geometry"/>
+        </mxCell>
+        <mxCell id="p3" value="&lt;b&gt;FolderDataset&lt;/b&gt;&lt;br&gt;(数据集)" style="shape=umlLifeline;perimeter=lifelinePerimeter;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="510" y="40" width="140" height="880" as="geometry"/>
+        </mxCell>
+        <mxCell id="p4" value="&lt;b&gt;IBackbone&lt;/b&gt;&lt;br&gt;(特征提取器)" style="shape=umlLifeline;perimeter=lifelinePerimeter;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="730" y="40" width="140" height="880" as="geometry"/>
+        </mxCell>
+        <mxCell id="p5" value="&lt;b&gt;CoresetSampler&lt;/b&gt;&lt;br&gt;(核心集采样)" style="shape=umlLifeline;perimeter=lifelinePerimeter;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="950" y="40" width="150" height="880" as="geometry"/>
+        </mxCell>
+        <mxCell id="p6" value="&lt;b&gt;MemoryBank&lt;/b&gt;&lt;br&gt;(记忆库)" style="shape=umlLifeline;perimeter=lifelinePerimeter;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="1180" y="40" width="140" height="880" as="geometry"/>
+        </mxCell>
+
+        <!-- Activation bar: PatchCoreTrainer -->
+        <mxCell id="act2" value="" style="fillColor=none;strokeColor=#000000;strokeWidth=2;pointerEvents=1;" vertex="1" parent="1">
+          <mxGeometry x="348" y="110" width="14" height="720" as="geometry"/>
+        </mxCell>
+
+        <!-- Messages -->
+
+        <!-- e1: CLI → Trainer: TrainFromFolder -->
+        <mxCell id="e1" value="TrainFromFolder(dataPath, modelPath, outputPath, cfg)" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;verticalAlign=bottom;endArrow=block;fontSize=11;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="125" y="140" as="sourcePoint"/>
+            <mxPoint x="355" y="140" as="targetPoint"/>
+          </mxGeometry>
+        </mxCell>
+
+        <!-- e2: Trainer → Dataset: Load -->
+        <mxCell id="e2" value="Load(folderPath) → 遍历图像文件" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;verticalAlign=bottom;endArrow=block;fontSize=11;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="355" y="190" as="sourcePoint"/>
+            <mxPoint x="580" y="190" as="targetPoint"/>
+          </mxGeometry>
+        </mxCell>
+
+        <!-- e3: Dataset → Trainer: return dataset (return) -->
+        <mxCell id="e3" value="返回 dataset (vector&lt;Sample&gt;)" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;verticalAlign=bottom;dashed=1;endArrow=open;strokeColor=#999999;fontSize=11;fontColor=#666666;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="580" y="240" as="sourcePoint"/>
+            <mxPoint x="355" y="240" as="targetPoint"/>
+          </mxGeometry>
+        </mxCell>
+
+        <!-- e4: Trainer → Backbone: Init -->
+        <mxCell id="e4" value="Init(config) 加载模型文件" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;verticalAlign=bottom;endArrow=block;fontSize=11;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="355" y="300" as="sourcePoint"/>
+            <mxPoint x="800" y="300" as="targetPoint"/>
+          </mxGeometry>
+        </mxCell>
+
+        <!-- Loop frame -->
+        <mxCell id="loop" value="&lt;b&gt;loop&lt;/b&gt; [for each sample in dataset]" style="rounded=0;dashed=1;fillColor=none;strokeColor=#666666;html=1;whiteSpace=wrap;fontSize=12;fontColor=#333333;verticalAlign=top;align=left;spacingLeft=6;spacingTop=4;" vertex="1" parent="1">
+          <mxGeometry x="270" y="395" width="610" height="145" as="geometry"/>
+        </mxCell>
+
+        <!-- e6: Trainer → Backbone: Extract (inside loop) -->
+        <mxCell id="e6" value="Extract(image) → 多尺度特征提取" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;verticalAlign=bottom;endArrow=block;fontSize=11;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="355" y="450" as="sourcePoint"/>
+            <mxPoint x="800" y="450" as="targetPoint"/>
+          </mxGeometry>
+        </mxCell>
+
+        <!-- e7: Backbone → Trainer: return features (return) -->
+        <mxCell id="e7" value="返回 vector&lt;PatchFeature&gt;" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;verticalAlign=bottom;dashed=1;endArrow=open;strokeColor=#999999;fontSize=11;fontColor=#666666;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="800" y="500" as="sourcePoint"/>
+            <mxPoint x="355" y="500" as="targetPoint"/>
+          </mxGeometry>
+        </mxCell>
+
+        <!-- e8: Trainer → Coreset: Sample -->
+        <mxCell id="e8" value="Sample(allFeatures, targetSize) → FPS采样" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;verticalAlign=bottom;endArrow=block;fontSize=11;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="355" y="620" as="sourcePoint"/>
+            <mxPoint x="1025" y="620" as="targetPoint"/>
+          </mxGeometry>
+        </mxCell>
+
+        <!-- e9: Coreset → Trainer: return indices (return) -->
+        <mxCell id="e9" value="返回 indices (核心集下标)" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;verticalAlign=bottom;dashed=1;endArrow=open;strokeColor=#999999;fontSize=11;fontColor=#666666;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="1025" y="670" as="sourcePoint"/>
+            <mxPoint x="355" y="670" as="targetPoint"/>
+          </mxGeometry>
+        </mxCell>
+
+        <!-- e10: Trainer → MemoryBank: Build -->
+        <mxCell id="e10" value="Build(coreFeatures) → 构建记忆库" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;verticalAlign=bottom;endArrow=block;fontSize=11;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="355" y="730" as="sourcePoint"/>
+            <mxPoint x="1250" y="730" as="targetPoint"/>
+          </mxGeometry>
+        </mxCell>
+
+        <!-- e11: Trainer → MemoryBank: Save -->
+        <mxCell id="e11" value="Save(outputPath) → 写入 .bin 文件" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;verticalAlign=bottom;endArrow=block;fontSize=11;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="355" y="790" as="sourcePoint"/>
+            <mxPoint x="1250" y="790" as="targetPoint"/>
+          </mxGeometry>
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
