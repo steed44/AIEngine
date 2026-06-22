@@ -15,7 +15,9 @@
 #include "preprocess/normalize_node.h"
 #include "postprocess/nms_node.h"
 #include "patchcore/patchcore_node.h"
+#include "patchcore/multi_roi_node.h"
 #include "backend/backend_factory.h"
+#include "engine/thread_pool.h"
 
 namespace aicore {
 
@@ -32,19 +34,19 @@ Status PipelineBuilder::Build(const PipelineConfig& config,
                               std::shared_ptr<EnginePool> pool) {
     auto impl = std::make_unique<PipelineImpl>(pool);
 
+    // 创建线程池，注入 PipelineImpl
+    auto threadPool = std::make_shared<ThreadPool>(config.maxConcurrency);
+    impl->SetThreadPool(threadPool);
+
     // 阶段一：遍历所有节点，根据类型创建对应的处理器实例
     for (auto& pc : config.nodes) {
         std::shared_ptr<IProcessor> processor;
 
-        // 按节点类型分发创建不同的处理器
-        // model 节点：通过工厂创建后端引擎，加载模型后包装为 ModelNode
         if (pc.type == "model") {
-            // 根据后端类型创建引擎实例
             auto backend = BackendFactory::Create(pc.backend);
             if (!backend)
                 return Status{StatusCode::ErrorConfigParse,
                               "unknown backend for " + pc.id};
-            // 构造模型加载信息并调用 Load
             ModelInfo info;
             info.modelPath = pc.modelPath;
             info.backend = pc.backend;
@@ -53,24 +55,20 @@ Status PipelineBuilder::Build(const PipelineConfig& config,
             auto s = backend->Load(info);
             if (!s) return s;
             processor = std::make_shared<ModelNode>(std::shared_ptr<IModelBackend>(std::move(backend)));
-        // 图像缩放预处理
         } else if (pc.type == "resize") {
             processor = std::make_shared<ResizeNode>();
-        // 图像归一化预处理
         } else if (pc.type == "normalize") {
             processor = std::make_shared<NormalizeNode>();
-        // 非极大值抑制后处理
         } else if (pc.type == "nms") {
             processor = std::make_shared<NmsNode>();
-        // 多路结果合并
         } else if (pc.type == "merge") {
             processor = std::make_shared<MergeNode>();
-        // 复合节点（包含子图）
         } else if (pc.type == "composite") {
             processor = std::make_shared<CompositeNode>();
-        // PatchCore 异常检测专用节点
         } else if (pc.type == "patchcore") {
             processor = std::make_shared<PatchCoreNode>();
+        } else if (pc.type == "multi_roi") {
+            processor = std::make_shared<MultiRoiNode>();
         } else {
             return Status{StatusCode::ErrorConfigParse,
                           "unknown node type: " + pc.type};
@@ -78,6 +76,9 @@ Status PipelineBuilder::Build(const PipelineConfig& config,
 
         auto s = processor->Init(pc.params);
         if (!s) return s;
+
+        // 将线程池注入到支持它的节点
+        processor->SetThreadPool(threadPool.get());
 
         // 将节点注册到管线实现中
         impl->AddNode(pc.id, processor, {});

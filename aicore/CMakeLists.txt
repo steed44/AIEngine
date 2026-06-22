@@ -6,12 +6,17 @@
 # ============================================================
 
 cmake_minimum_required(VERSION 3.20)
-project(AICore VERSION 0.1.0 LANGUAGES CXX)
+project(AICore VERSION 0.1.0 LANGUAGES CXX CUDA)
+
+set(CMAKE_CUDA_ARCHITECTURES "86")  # RTX 3060 (Ampere, sm_86)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CUDA_STANDARD 17)
+set(CMAKE_CUDA_STANDARD_REQUIRED ON)
 
 find_package(OpenCV 4.7.0 REQUIRED)
+find_package(CUDAToolkit REQUIRED)
 find_package(GTest REQUIRED)
 
 # LibTorch (PatchCore backbone, 可选)
@@ -35,6 +40,7 @@ set(AICORE_SOURCES
     src/config/pipeline_builder.cpp
     src/engine/thread_pool.cpp
     src/engine/engine_pool.cpp
+    src/engine/ai_engine.cpp
     src/pipeline/pipeline_impl.cpp
     src/pipeline/model_node.cpp
     src/pipeline/composite_node.cpp
@@ -57,6 +63,9 @@ set(AICORE_SOURCES
     src/patchcore/roi_def.cpp
     src/patchcore/roi_trainer.cpp
     src/patchcore/multi_roi_node.cpp
+    src/patchcore/memory_manager.cpp
+    src/patchcore/tiered_memory_bank.cpp
+    src/patchcore/nn_search.cu
 )
 
 # 可选：若找到 LibTorch 则添加其 backbone 实现
@@ -72,6 +81,7 @@ target_include_directories(aicore
     PRIVATE ${OpenCV_INCLUDE_DIRS}
 )
 target_link_libraries(aicore PRIVATE ${OpenCV_LIBS})
+target_link_libraries(aicore PRIVATE CUDA::cudart)
 if(Torch_FOUND)
     target_link_libraries(aicore PRIVATE ${TORCH_LIBRARIES})
 endif()

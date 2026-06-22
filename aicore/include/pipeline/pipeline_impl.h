@@ -36,17 +36,20 @@ public:
     void AddEdge(const std::string& from, const std::string& to);
     void MarkReady();
 
+    void SetThreadPool(std::shared_ptr<ThreadPool> pool) { threadPool_ = std::move(pool); }
+    ThreadPool* GetThreadPool() const { return threadPool_.get(); }
+
 private:
     Status ExecuteNode(const std::string& nodeId,
                        const std::unordered_map<std::string, std::vector<Frame>>& nodeInputs,
                        std::unordered_map<std::string, std::vector<Frame>>& nodeOutputs,
                        std::map<std::string, NodeMetric>& metrics,
-                       uint64_t timestamp);
-
+                       uint64_t timestamp,
+                       std::mutex* outputsMutex = nullptr);
     std::unordered_map<std::string, DagNode> nodes_;
     std::vector<std::string> entryNodes_;
     std::vector<std::string> exitNodes_;
-    std::unique_ptr<ThreadPool> threadPool_;
+    std::shared_ptr<ThreadPool> threadPool_;
     std::shared_ptr<EnginePool> enginePool_;
     PipelineState state_ = PipelineState::kCreated;
     std::string configJson_;

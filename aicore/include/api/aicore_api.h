@@ -63,6 +63,33 @@ AICORE_C_API void aicore_pipeline_destroy(AICorePipeline pipeline);
 // @return PipelineState 枚举的整数值
 AICORE_C_API int aicore_pipeline_get_state(AICorePipeline pipeline);
 
+// ──────────────────────────────────────────
+// 便捷单例接口（隐藏 handle 管理）
+// ──────────────────────────────────────────
+
+// 初始化引擎单例，根据 JSON 配置创建 pipeline
+// @param configJson pipeline 配置的 JSON 字符串
+// @param errorOut   传出错误信息（若初始化失败），调用者无需释放
+// @return 0 成功，非 0 失败
+AICORE_C_API int aicore_engine_init(const char* configJson,
+                                     const char** errorOut);
+
+// 使用引擎单例同步执行推理
+// @param imageData 图像原始像素数据（连续内存）
+// @param width     图像宽度（像素）
+// @param height    图像高度（像素）
+// @param channels  图像通道数
+// @param resultOut 传出结果句柄，使用后需调用 aicore_result_free 释放
+// @param errorOut  传出错误信息（若执行失败），调用者无需释放
+// @return 0 成功，非 0 失败
+AICORE_C_API int aicore_engine_execute(const unsigned char* imageData,
+                                        int width, int height, int channels,
+                                        AICoreResult* resultOut,
+                                        const char** errorOut);
+
+// 销毁引擎单例，释放所有资源
+AICORE_C_API void aicore_engine_shutdown();
+
 #ifdef __cplusplus
 }
 #endif

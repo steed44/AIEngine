@@ -9,6 +9,8 @@
 #include <algorithm>
 #include <queue>
 #include <sstream>
+#include <future>
+#include <atomic>
 
 namespace aicore {
 
@@ -133,13 +135,23 @@ void PipelineImpl::MarkReady() {
 }
 
 /**
- * 同步执行流水线：按 DAG 拓扑顺序逐轮调度各节点
- * 采用"轮询推进"策略——每轮遍历所有未处理节点，
- * 仅当某节点的所有上游输入就绪时才执行它。
- * 这等价于拓扑排序的贪心模拟，避免显式维护依赖计数。
- * @param input  输入帧
- * @param output [out] 输出结果，包含检测信息和延迟指标
- * @return Status 执行是否成功
+ * 同步执行流水线：按 DAG 拓扑顺序每轮并行调度所有就绪节点
+ *
+ * 采用"轮询推进 + 并发"策略：
+ *   每轮扫描所有未处理节点，收集输入就绪的节点；
+ *   若有线程池且就绪节点数 > 1，通过 ThreadPool 并行执行；
+ *   否则串行执行（退化路径）。
+ *
+ * 算法对比：
+ *   方案 A - Kahn 拓扑排序（传统 DAG 调度）：
+ *     维护入度计数，入度归零时入队执行。
+ *     缺点：难以处理运行时动态图（某些节点可跳过）。
+ *
+ *   方案 B - 轮询推进 + 并行（本实现）：
+ *     每轮扫描 → 收集就绪节点 → 并发/串行执行 → 推进下一轮。
+ *     优点：天然支持动态跳过（返回值 Skip 不影响后续）、
+ *           无需预计算入度、每轮独立节点自动并行。
+ *     缺点：每轮 O(V+E)，总执行轮次可能多于 V。
  */
 Status PipelineImpl::Execute(const Frame& input, Result& output) {
     if (state_ != PipelineState::kReady && state_ != PipelineState::kRunning)
@@ -149,52 +161,27 @@ Status PipelineImpl::Execute(const Frame& input, Result& output) {
     auto start = std::chrono::steady_clock::now();
     output.timestamp = input.timestamp;
 
-    // nodeInputs: 当前轮次各节点的输入数据池
-    // nodeOutputs: 当前轮次各节点的输出数据池
     std::unordered_map<std::string, std::vector<Frame>> nodeInputs;
     std::unordered_map<std::string, std::vector<Frame>> nodeOutputs;
 
-    // 将输入帧注入到入口节点的输入池中
     nodeInputs["input"].push_back(input);
     for (auto& entry : entryNodes_) {
         if (entry != "input")
             nodeInputs[entry].push_back(input);
     }
 
-    // 初始化所有节点为"未处理"状态
     for (auto& [id, node] : nodes_)
         node.processed = false;
 
     std::map<std::string, NodeMetric> metrics;
     bool complete = true;
 
-    // ---- DAG 并行执行策略 ----
-    // 采用"轮询推进"（Round-robin Polling）策略替代经典拓扑排序（Kahn 算法）：
-    //
-    // 算法对比：
-    //   方案 A - Kahn 拓扑排序（传统 DAG 调度）：
-    //     维护每个节点的入度计数，入度归零时入队执行。
-    //     优点：严格一次遍历，时间复杂度 O(V+E)
-    //     缺点：难以处理运行时动态图（某些节点可跳过）
-    //
-    //   方案 B - 轮询推进（本实现）：
-    //     每轮扫描所有未处理节点，检查输入是否就绪，就绪则执行。
-    //     优点：天然支持动态跳过（返回值 Skip 不影响后续）、
-    //           无需预计算入度、代码更直观
-    //     缺点：每轮 O(V+E)，总执行轮次可能多于 V
-    //
-    // 本实现选择方案 B 的原因：
-    //   Pipeline 中可能包含条件节点（如异常评分高才执行 NMS），
-    //   方案 A 的静态拓扑排序无法处理这种情况。
-    //   轮询策略通过 "processed" 标记和 "allInputsReady" 检查
-    //   自然支持条件执行和节点跳过。
-    // 主循环：反复扫描节点列表，处理所有输入就绪的节点
+    // 主循环：反复扫描，每轮并行执行所有就绪节点
     while (true) {
-        bool progressed = false;
+        // 收集本轮就绪节点
+        std::vector<std::string> readyIds;
         for (auto& [id, node] : nodes_) {
             if (node.processed) continue;
-
-            // 检查该节点的所有上游输入是否都已产生数据
             bool allInputsReady = true;
             for (auto& inId : node.inputs) {
                 if (!inId.empty() && nodeInputs.find(inId) == nodeInputs.end()) {
@@ -202,28 +189,59 @@ Status PipelineImpl::Execute(const Frame& input, Result& output) {
                     break;
                 }
             }
-            if (!allInputsReady) continue;
-
-            auto s = ExecuteNode(id, nodeInputs, nodeOutputs, metrics, input.timestamp);
-            if (!s) {
-                output.status = s.code;
-                output.errorMsg = s.message;
-                complete = false;
-                break;
-            }
-            node.processed = true;
-            progressed = true;
+            if (allInputsReady) readyIds.push_back(id);
         }
-        if (!complete) break;
-        // 死锁检测：
-        // 如果某轮没有任何节点被处理（progressed == false），
-        // 说明剩余未处理节点存在循环依赖或所有输入都无法满足。
-        // 在合法 DAG 中这不应发生，所以直接退出避免无限循环。
-        // 可能原因：配置文件中边关系定义错误导致环形依赖。
-        if (!progressed) break;
 
-        // 将本轮输出作为下一轮输入，继续拓扑推进
-        nodeInputs = nodeOutputs;
+        if (readyIds.empty()) break;  // 死锁或全部完成
+
+        // 并行：就绪节点数 > 1 且有线程池时走并行，否则退化串行
+        if (readyIds.size() > 1 && threadPool_) {
+            std::mutex outputsMutex;
+            std::atomic<bool> failed{false};
+            std::vector<std::future<Status>> futures;
+            futures.reserve(readyIds.size());
+
+            for (auto& id : readyIds) {
+                futures.push_back(threadPool_->Enqueue([&, id]() -> Status {
+                    if (failed.load()) return Status{StatusCode::ErrorInternal, ""};
+                    auto s = ExecuteNode(id, nodeInputs, nodeOutputs,
+                                         metrics, input.timestamp, &outputsMutex);
+                    if (!s && s.code != StatusCode::Skip) {
+                        failed.store(true);
+                    }
+                    return s;
+                }));
+            }
+
+            for (size_t i = 0; i < readyIds.size(); i++) {
+                auto s = futures[i].get();
+                if (s || s.code == StatusCode::Skip) {
+                    nodes_[readyIds[i]].processed = true;
+                } else {
+                    output.status = s.code;
+                    output.errorMsg = s.message;
+                    complete = false;
+                }
+            }
+        } else {
+            // 串行退化路径（单节点就绪或无线程池）
+            for (auto& id : readyIds) {
+                auto s = ExecuteNode(id, nodeInputs, nodeOutputs,
+                                     metrics, input.timestamp);
+                if (!s) {
+                    output.status = s.code;
+                    output.errorMsg = s.message;
+                    complete = false;
+                    break;
+                }
+                nodes_[id].processed = true;
+            }
+        }
+
+        if (!complete) break;
+
+        nodeInputs = std::move(nodeOutputs);
+
         bool allProcessed = true;
         for (auto& [id, node] : nodes_) {
             if (!node.processed) { allProcessed = false; break; }
@@ -276,12 +294,12 @@ Status PipelineImpl::ExecuteNode(
     const std::unordered_map<std::string, std::vector<Frame>>& nodeInputs,
     std::unordered_map<std::string, std::vector<Frame>>& nodeOutputs,
     std::map<std::string, NodeMetric>& metrics,
-    uint64_t timestamp) {
+    uint64_t timestamp,
+    std::mutex* outputsMutex) {
 
     auto nodeStart = std::chrono::steady_clock::now();
     auto& node = nodes_[nodeId];
 
-    // 从输入映射中收集该节点的所有上游数据
     std::vector<Frame> inputs;
     for (auto& inId : node.inputs) {
         auto it = nodeInputs.find(inId);
@@ -291,30 +309,30 @@ Status PipelineImpl::ExecuteNode(
         }
     }
 
-    // 统计输入数据字节数
     NodeMetric metric;
     metric.inputBytes = 0;
     for (auto& f : inputs)
         metric.inputBytes += f.image.total() * f.image.elemSize();
 
-    // 调用处理器执行实际逻辑（推理/预处理/后处理）
     std::vector<Frame> outputs;
     auto s = node.processor->Process(inputs, outputs);
     metric.status = s.code;
 
-    // 即使返回 Skip 也保留输出（允许跳过但继续传递）
+    // 并行安全：写 nodeOutputs + 读回 + metrics 保持锁连续
+    if (outputsMutex) outputsMutex->lock();
     if (s || s.code == StatusCode::Skip) {
         nodeOutputs[nodeId] = std::move(outputs);
     }
-
-    // 统计输出数据字节数
     metric.outputBytes = 0;
-    for (auto& f : nodeOutputs[nodeId])
-        metric.outputBytes += f.image.total() * f.image.elemSize();
-
+    auto outIt = nodeOutputs.find(nodeId);
+    if (outIt != nodeOutputs.end()) {
+        for (auto& f : outIt->second)
+            metric.outputBytes += f.image.total() * f.image.elemSize();
+    }
     auto nodeEnd = std::chrono::steady_clock::now();
     metric.latencyMs = std::chrono::duration<double, std::milli>(nodeEnd - nodeStart).count();
     metrics[nodeId] = metric;
+    if (outputsMutex) outputsMutex->unlock();
 
     return s;
 }

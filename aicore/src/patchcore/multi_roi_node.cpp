@@ -7,6 +7,7 @@
 #include <opencv2/imgproc.hpp>
 #include <opencv2/highgui.hpp>
 #include <iostream>
+#include <future>
 
 namespace aicore {
 
@@ -55,7 +56,7 @@ Status MultiRoiNode::Init(const NodeConfig& config) {
     s = backbone_->Init(backboneConfig);
     if (!s) return s;
 
-    // ---- 加载各 ROI 的 MemoryBank ----
+    // ---- 加载各 ROI 的 MemoryBank（mmap，CPU 层） ----
     for (const auto& roi : config_.rois) {
         RoiModelSlot slot;
         slot.roiId = roi.id;
@@ -63,28 +64,49 @@ Status MultiRoiNode::Init(const NodeConfig& config) {
         slot.anomalyThreshold = config_.anomalyThreshold;
 
         std::string bankPath = config_.modelDir + "/" + roi.id + ".bin";
-        if (!slot.memoryBank.Load(bankPath)) {
+        auto loadStatus = slot.memoryBank.Load(bankPath);
+        if (!loadStatus) {
             return Status{StatusCode::ErrorModelLoad,
-                "multi_roi: cannot load memory bank: " + bankPath};
+                "multi_roi: cannot load memory bank: " + bankPath +
+                " (" + loadStatus.message + ")"};
         }
 
         slots_.push_back(slot);
+    }
+
+    // ---- 尝试将各 ROI 的 MemoryBank 提升至 GPU ----
+    // 按 LRU 顺序依次提升；若某 Bank 超出预算则保持 CPU 层
+    for (auto& slot : slots_) {
+        auto promoteStatus = slot.memoryBank.PromoteToGPU();
+        if (!promoteStatus) {
+            std::cout << "multi_roi: ROI " << slot.roiId
+                      << " stays on CPU tier (" << promoteStatus.message << ")"
+                      << std::endl;
+        }
     }
 
     return Status{};
 }
 
 // -------------------------------------------------------
-// 推理一帧大图：遍历所有 ROI，执行裁剪→提取→比对→叠加
+// 推理一帧大图：并行推理所有 ROI，再串行收集结果→叠加
 //
 // 输出帧包含：
 //   - roiMap["roi_{id}_score"] = float 异常得分
 //   - roiMap["roi_{id}_anomaly"] = 1.0f（异常）或 0.0f（正常）
 //   - image 上绘制了 ROI 框（绿色=正常 红色=异常）
 //
-// 全 ROI 推理的总时间 = Σ(每 ROI 裁剪 + 特征提取 + NN 搜索)
-// 共享 backbone 避免了重复加载模型，但每 ROI 仍需独立 Extract
+// 并行策略：
+//   若有 threadPool_ 且 ROI 数 > 1，每个 ROI 的
+//   裁剪→Extract→MemoryBank 比对提交到线程池并发执行。
+//   全部完成后在主线程串行收集结果并叠加绘制。
 // -------------------------------------------------------
+struct RoiInferResult {
+    bool ok = false;
+    std::string errorMsg;
+    float score = 0;
+};
+
 Status MultiRoiNode::Process(const std::vector<Frame>& inputs,
                               std::vector<Frame>& outputs) {
     if (inputs.empty()) {
@@ -96,31 +118,52 @@ Status MultiRoiNode::Process(const std::vector<Frame>& inputs,
         return Status{StatusCode::ErrorPreprocess, "multi_roi: empty image"};
     }
 
-    // 储存推理结果
     Frame out(fullImage.clone());
     bool anyAnomaly = false;
+    size_t n = slots_.size();
 
-    // ---- 遍历每个 ROI 执行推理 ----
-    for (size_t i = 0; i < slots_.size(); i++) {
-        const auto& slot = slots_[i];
-        float score = 0;
-        cv::Mat heatmap;
+    std::vector<RoiInferResult> results(n);
 
-        auto s = ProcessOneRoi(fullImage, slot, score, heatmap);
-        if (!s) {
+    if (n > 1 && threadPool_) {
+        // ---- 并行路径：通过 ThreadPool 并发推理所有 ROI ----
+        std::vector<std::future<void>> futures;
+        futures.reserve(n);
+        for (size_t i = 0; i < n; i++) {
+            futures.push_back(threadPool_->Enqueue([&, i]() {
+                float score = 0;
+                cv::Mat heatmap;
+                auto s = ProcessOneRoi(fullImage, slots_[i], score, heatmap);
+                results[i].ok = (s || s.code == StatusCode::Skip);
+                results[i].errorMsg = s.message;
+                results[i].score = score;
+            }));
+        }
+        for (auto& f : futures) f.get();
+    } else {
+        // ---- 串行退化路径（无线程池或单 ROI） ----
+        for (size_t i = 0; i < n; i++) {
+            float score = 0;
+            cv::Mat heatmap;
+            auto s = ProcessOneRoi(fullImage, slots_[i], score, heatmap);
+            results[i].ok = (s || s.code == StatusCode::Skip);
+            results[i].errorMsg = s.message;
+            results[i].score = score;
+        }
+    }
+
+    // ---- 串行收集结果 + 叠加绘制 ----
+    for (size_t i = 0; i < n; i++) {
+        auto& slot = slots_[i];
+        if (!results[i].ok) {
             std::cerr << "multi_roi: ROI " << slot.roiId
-                      << " inference failed: " << s.message << std::endl;
+                      << " inference failed: " << results[i].errorMsg << std::endl;
             continue;
         }
-
+        float score = results[i].score;
         bool isAnomaly = score > slot.anomalyThreshold;
         anyAnomaly = anyAnomaly || isAnomaly;
-
-        // 将结果写入输出帧的 roiMap
         out.roiMap["roi_" + slot.roiId + "_score"] = score;
         out.roiMap["roi_" + slot.roiId + "_anomaly"] = isAnomaly ? 1.0f : 0.0f;
-
-        // 在输出图像上绘制 ROI 框和热力图
         if (drawOverlay_) {
             DrawRoiOverlay(out.image, slot, score);
         }

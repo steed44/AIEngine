@@ -7,6 +7,8 @@
 #include <unordered_map>
 #include <memory>
 
+namespace aicore { class ThreadPool; }
+
 // aicore 命名空间，包含 AI 引擎核心的所有类型和接口
 namespace aicore {
 
@@ -35,6 +37,9 @@ public:
     // 获取处理器类型标识（如 "Preprocessor", "Inference", "Postprocessor" 等）
     // @return 处理器类型字符串
     virtual std::string GetType() const = 0;
+
+    // 注入线程池引用，支持并行推理的节点可覆写此方法
+    virtual void SetThreadPool(ThreadPool* pool) { (void)pool; }
 };
 
 } // namespace aicore

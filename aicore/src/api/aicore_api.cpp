@@ -6,6 +6,7 @@
 #include "api/aicore_api.h"
 #include "config/config_parser.h"
 #include "config/pipeline_builder.h"
+#include "engine/ai_engine.h"
 #include "pipeline/pipeline_impl.h"
 #include <string>
 #include <mutex>
@@ -190,4 +191,54 @@ void aicore_pipeline_destroy(AICorePipeline pipeline) {
 int aicore_pipeline_get_state(AICorePipeline pipeline) {
     if (!pipeline) return -1;
     return static_cast<int>(static_cast<IPipeline*>(pipeline)->GetState());
+}
+
+// ──────────────────────────────────────────
+// 便捷单例接口实现
+// ──────────────────────────────────────────
+
+int aicore_engine_init(const char* configJson, const char** errorOut) {
+    if (!configJson) {
+        if (errorOut) *errorOut = "null config";
+        return -1;
+    }
+
+    auto& engine = AiEngine::GetInstance();
+    auto s = engine.Init(configJson);
+    if (!s) {
+        if (errorOut) *errorOut = StoreError(s.message);
+        return -1;
+    }
+    return 0;
+}
+
+int aicore_engine_execute(const unsigned char* imageData,
+                           int width, int height, int channels,
+                           AICoreResult* resultOut,
+                           const char** errorOut) {
+    if (!imageData || width <= 0 || height <= 0) {
+        if (errorOut) *errorOut = "invalid parameters";
+        return -1;
+    }
+
+    auto& engine = AiEngine::GetInstance();
+
+    cv::Mat img(height, width,
+                channels == 1 ? CV_8UC1 :
+                channels == 4 ? CV_8UC4 : CV_8UC3,
+                const_cast<unsigned char*>(imageData));
+
+    Result result;
+    auto s = engine.Execute(Frame(img), result);
+    if (!s) {
+        if (errorOut) *errorOut = StoreError(s.message);
+        return -1;
+    }
+
+    *resultOut = static_cast<AICoreResult>(new Result(std::move(result)));
+    return 0;
+}
+
+void aicore_engine_shutdown() {
+    AiEngine::GetInstance().Shutdown();
 }

@@ -6,9 +6,10 @@
 // ============================================================
 #pragma once
 #include "core/processor.h"
-#include "patchcore/memory_bank.h"
+#include "patchcore/tiered_memory_bank.h"
 #include "patchcore/backbone.h"
 #include "patchcore/roi_def.h"
+#include "engine/thread_pool.h"
 #include <vector>
 #include <memory>
 
@@ -20,7 +21,7 @@ namespace aicore {
 // -------------------------------------------------------
 struct RoiModelSlot {
     std::string roiId;          // ROI 标识
-    MemoryBank memoryBank;      // 该 ROI 的预训练记忆库
+    TieredMemoryBank memoryBank;      // 该 ROI 的三级存储记忆库
     float anomalyThreshold;     // 该 ROI 的异常判定阈值（默认 0.5）
     cv::Rect rect;              // 在大图中的裁剪矩形
 };
@@ -54,6 +55,8 @@ public:
     std::string GetName() const override { return name_; }
     std::string GetType() const override { return "multi_roi_patchcore"; }
 
+    void SetThreadPool(ThreadPool* pool) override { threadPool_ = pool; }
+
 private:
     // 为单个 ROI 执行推理（裁剪 → 提取 → 比对）
     Status ProcessOneRoi(const cv::Mat& fullImage,
@@ -71,6 +74,7 @@ private:
     std::vector<RoiModelSlot> slots_;          // 各 ROI 的推理上下文
     MultiRoiConfig config_;                    // 完整配置
     bool drawOverlay_ = true;                  // 是否在原图上绘制检测结果
+    ThreadPool* threadPool_ = nullptr;         // 线程池引用（并行推理 ROIs）
 };
 
 } // namespace aicore
