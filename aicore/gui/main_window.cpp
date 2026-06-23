@@ -4,6 +4,7 @@
 // ============================================================
 
 #include "main_window.h"
+#include "training_dialog.h"
 #include <QMenuBar>
 #include <QFileDialog>
 #include <QMessageBox>
@@ -16,6 +17,7 @@
 #include <QtConcurrent>
 #include <fstream>
 #include <sstream>
+#include <vector>
 
 // 构造函数：设置菜单栏、图片显示区、结果文本区和信号槽连接
 MainWindow::MainWindow(QWidget* parent)
@@ -27,6 +29,10 @@ MainWindow::MainWindow(QWidget* parent)
     openAction_ = menu->addAction("打开图片 (Ctrl+O)", this, &MainWindow::onOpenImage, QKeySequence::Open);
     menu->addSeparator();
     menu->addAction("退出", this, &QWidget::close);
+
+    // --- 菜单栏：训练菜单 ---
+    auto* trainMenu = menuBar()->addMenu("训练");
+    trainMenu->addAction("训练配置...", this, &MainWindow::onTrainingDialog, QKeySequence("Ctrl+T"));
 
     // --- 图片显示区域（带滚动） ---
     imageLabel_ = new QLabel("请打开一张图片");
@@ -99,7 +105,13 @@ void MainWindow::showError(const QString& msg) {
     QMessageBox::warning(this, "错误", msg);
 }
 
-// 槽：打开图片文件 → 转换为 RGB 数据 → 异步执行推理
+// 打开训练配置对话框
+void MainWindow::onTrainingDialog() {
+    TrainingDialog dlg(this);
+    dlg.exec();
+}
+
+// 打开图片文件 → 异步执行推理
 void MainWindow::onOpenImage() {
     auto path = QFileDialog::getOpenFileName(this, "打开图片", "",
         "图片 (*.png *.jpg *.jpeg *.bmp *.tiff)");
@@ -125,8 +137,8 @@ void MainWindow::onOpenImage() {
     int w = rgb.width(), h = rgb.height();
     int channels = 3;
 
-    auto* data = new uchar[rgb.sizeInBytes()];
-    memcpy(data, rgb.bits(), rgb.sizeInBytes());
+    std::vector<uchar> data(rgb.sizeInBytes());
+    memcpy(data.data(), rgb.bits(), rgb.sizeInBytes());
 
     resultText_->setText("推理中...");
     lastJson_.clear();
@@ -135,7 +147,7 @@ void MainWindow::onOpenImage() {
     auto future = QtConcurrent::run([this, data, w, h, channels]() {
         AICoreResult result = nullptr;
         const char* err = nullptr;
-        int ret = aicore_pipeline_execute(pipeline_, data, w, h, channels, &result, &err);
+        int ret = aicore_pipeline_execute(pipeline_, data.data(), w, h, channels, &result, &err);
         if (ret == 0 && result) {
             const char* json = aicore_result_to_json(result);
             lastJson_ = QString::fromUtf8(json);
@@ -143,7 +155,6 @@ void MainWindow::onOpenImage() {
         } else {
             lastJson_ = QString("{\"error\":\"%1\"}").arg(err ? err : "推理失败");
         }
-        delete[] data;
     });
     watcher_->setFuture(future);
 }

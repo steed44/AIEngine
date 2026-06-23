@@ -11,6 +11,7 @@
 #include <QAction>
 #include <QImage>
 #include <QFutureWatcher>
+#include <QMenu>
 #include "api/aicore_api.h"
 
 // 主窗口类：提供图片加载、推理执行和结果可视化的桌面界面
@@ -23,6 +24,7 @@ public:
 private slots:
     void onOpenImage();          // 槽：打开图片并启动推理
     void onInferenceFinished();  // 槽：推理完成后更新界面
+    void onTrainingDialog();     // 槽：打开训练对话框
 
 private:
     void initPipeline();                           // 初始化推理流水线
