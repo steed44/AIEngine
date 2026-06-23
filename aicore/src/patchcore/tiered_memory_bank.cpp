@@ -1,5 +1,6 @@
 #include "patchcore/tiered_memory_bank.h"
 #include "patchcore/memory_manager.h"
+#include "core/cuda_mem.h"
 #include <fstream>
 #include <algorithm>
 #include <cmath>
@@ -9,6 +10,7 @@
 #include <opencv2/imgproc.hpp>
 
 #ifdef _WIN32
+#define NOMINMAX
 #include <windows.h>
 #else
 #include <sys/mman.h>
@@ -16,6 +18,12 @@
 #include <fcntl.h>
 #include <unistd.h>
 #endif
+
+// 在 namespace 外部声明 CUDA kernel，满足 MSVC 链接规范要求
+extern "C" void BatchL2DistanceGPU(
+    const float* queries, int M, int D,
+    const float* bank, int N,
+    float* outBestDists);
 
 namespace aicore {
 
@@ -180,14 +188,13 @@ Status TieredMemoryBank::PromoteToGPU() {
                       "GPU OOM: cannot allocate bank (" + std::to_string(bytes / 1048576) + " MB)"};
     }
 
-    float* hostBuf = new float[num_ * dim_];
+    std::vector<float> hostBuf(num_ * dim_);
     for (int i = 0; i < num_; i++) {
         const float* src = MmapFeatureAt(mmapPtr_, i, dim_);
-        std::memcpy(hostBuf + i * dim_, src, dim_ * sizeof(float));
+        std::memcpy(hostBuf.data() + i * dim_, src, dim_ * sizeof(float));
     }
 
-    cudaError_t err = cudaMemcpy(gpu, hostBuf, bytes, cudaMemcpyHostToDevice);
-    delete[] hostBuf;
+    cudaError_t err = cudaMemcpy(gpu, hostBuf.data(), bytes, cudaMemcpyHostToDevice);
 
     if (err != cudaSuccess) {
         MemoryManager::GetInstance().Free(allocId);
@@ -289,41 +296,31 @@ std::vector<float> TieredMemoryBank::ComputeOnGPU(
     }
     if (maxRow == 0 || maxCol == 0) return {};
 
-    extern "C" void BatchL2DistanceGPU(
-        const float* queries, int M, int D,
-        const float* bank, int N,
-        float* outBestDists);
-
     // 构建稠密查询矩阵 M×D（主机端）
-    float* hostQ = new float[M * dim_];
+    std::vector<float> hostQ(M * dim_);
     for (int i = 0; i < M; i++) {
-        std::memcpy(hostQ + i * dim_, queries[i].features.data(),
+        std::memcpy(hostQ.data() + i * dim_, queries[i].features.data(),
                     dim_ * sizeof(float));
     }
 
-    float* devQ = nullptr;
-    float* devDist = nullptr;
     size_t qBytes = static_cast<size_t>(M) * dim_ * sizeof(float);
+    CudaMem devQ, devDist;
+    if (devQ.Alloc(qBytes) != cudaSuccess ||
+        devDist.Alloc(M * sizeof(float)) != cudaSuccess) {
+        return {};
+    }
+    cudaMemcpy(devQ.Get(), hostQ.data(), qBytes, cudaMemcpyHostToDevice);
 
-    cudaMalloc(&devQ, qBytes);
-    cudaMalloc(&devDist, M * sizeof(float));
-    cudaMemcpy(devQ, hostQ, qBytes, cudaMemcpyHostToDevice);
+    BatchL2DistanceGPU(devQ.Get(), M, dim_, gpuData_, num_, devDist.Get());
 
-    BatchL2DistanceGPU(devQ, M, dim_, gpuData_, num_, devDist);
-
-    float* hostDist = new float[M];
-    cudaMemcpy(hostDist, devDist, M * sizeof(float), cudaMemcpyDeviceToHost);
-
-    cudaFree(devQ);
-    cudaFree(devDist);
-    delete[] hostQ;
+    std::vector<float> hostDist(M);
+    cudaMemcpy(hostDist.data(), devDist.Get(), M * sizeof(float), cudaMemcpyDeviceToHost);
 
     // 按空间位置填入得分图
     cv::Mat scoreMap(maxRow, maxCol, CV_32F);
     for (int i = 0; i < M; i++) {
         scoreMap.at<float>(queries[i].patchRow, queries[i].patchCol) = hostDist[i];
     }
-    delete[] hostDist;
 
     cv::Mat upsampled;
     cv::resize(scoreMap, upsampled, cv::Size(imgW, imgH), 0, 0, cv::INTER_LINEAR);
