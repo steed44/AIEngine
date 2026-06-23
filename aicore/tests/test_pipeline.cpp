@@ -59,12 +59,11 @@ TEST(NmsNodeTest, InitSucceeds) {
 TEST(ModelNodeTest, InitAndGetName) {
     auto backend = BackendFactory::Create(BackendType::kTensorRT);
     ASSERT_NE(backend, nullptr);
-    auto sharedBackend = std::shared_ptr<IModelBackend>(std::move(backend));
 
-    ModelNode node(sharedBackend);
+    ModelNode node(std::move(backend));
     EXPECT_TRUE(node.Init({}));
     EXPECT_EQ(node.GetType(), "model");
-    EXPECT_EQ(node.GetBackend().get(), sharedBackend.get());
+    EXPECT_NE(node.GetBackend(), nullptr);
 }
 
 // 测试：MergeNode 简单透传多个输入帧
@@ -90,10 +89,9 @@ TEST(CompositeNodeTest, InnerPipeline) {
 
     auto backend = BackendFactory::Create(BackendType::kTensorRT);
     ASSERT_NE(backend, nullptr);
-    auto sharedBackend = std::shared_ptr<IModelBackend>(std::move(backend));
 
     auto pipeline = std::make_unique<PipelineImpl>();
-    auto modelNode = std::make_shared<ModelNode>(sharedBackend);
+    auto modelNode = std::make_shared<ModelNode>(std::move(backend));
     pipeline->AddNode("model", modelNode, {});
 
     node.SetInnerPipeline(std::move(pipeline));

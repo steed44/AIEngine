@@ -22,9 +22,17 @@ Status AiEngine::Init(const std::string& configJson) {
 
     enginePool_ = std::make_shared<EnginePool>();
 
+    ConfigParser parser;
+    PipelineConfig pipelineConfig;
+    auto parseStatus = parser.Parse(configJson, pipelineConfig);
+    if (!parseStatus) {
+        enginePool_.reset();
+        return parseStatus;
+    }
+
     PipelineBuilder builder;
     std::unique_ptr<IPipeline> pipeline;
-    auto s = builder.Build(configJson, pipeline, enginePool_);
+    auto s = builder.Build(pipelineConfig, pipeline, enginePool_);
     if (!s) {
         enginePool_.reset();
         return s;

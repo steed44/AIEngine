@@ -54,7 +54,7 @@ Status PipelineBuilder::Build(const PipelineConfig& config,
             info.batchSize = pc.batchSize;
             auto s = backend->Load(info);
             if (!s) return s;
-            processor = std::make_shared<ModelNode>(std::shared_ptr<IModelBackend>(std::move(backend)));
+            processor = std::make_shared<ModelNode>(std::move(backend));
         } else if (pc.type == "resize") {
             processor = std::make_shared<ResizeNode>();
         } else if (pc.type == "normalize") {

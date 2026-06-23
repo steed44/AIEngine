@@ -11,6 +11,7 @@
 #include <sstream>
 #include <future>
 #include <atomic>
+#include <mutex>
 
 namespace aicore {
 
@@ -83,7 +84,7 @@ Status PipelineImpl::Build(const std::string& configJson) {
             info.batchSize = pc.batchSize;
             s = backend->Load(info);
             if (!s) return s;
-            processor = std::make_shared<ModelNode>(std::shared_ptr<IModelBackend>(std::move(backend)));
+            processor = std::make_shared<ModelNode>(std::move(backend));
         } else {
             return Status{StatusCode::ErrorConfigParse,
                           "unknown node type: " + pc.type};
@@ -319,7 +320,8 @@ Status PipelineImpl::ExecuteNode(
     metric.status = s.code;
 
     // 并行安全：写 nodeOutputs + 读回 + metrics 保持锁连续
-    if (outputsMutex) outputsMutex->lock();
+    std::unique_lock<std::mutex> ulock;
+    if (outputsMutex) ulock = std::unique_lock<std::mutex>(*outputsMutex);
     if (s || s.code == StatusCode::Skip) {
         nodeOutputs[nodeId] = std::move(outputs);
     }
@@ -332,7 +334,6 @@ Status PipelineImpl::ExecuteNode(
     auto nodeEnd = std::chrono::steady_clock::now();
     metric.latencyMs = std::chrono::duration<double, std::milli>(nodeEnd - nodeStart).count();
     metrics[nodeId] = metric;
-    if (outputsMutex) outputsMutex->unlock();
 
     return s;
 }

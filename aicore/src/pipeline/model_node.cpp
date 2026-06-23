@@ -10,7 +10,7 @@ namespace aicore {
  * 构造函数：绑定模型后端
  * @param backend 推理后端实例（ONNX Runtime / TensorRT 等）
  */
-ModelNode::ModelNode(std::shared_ptr<IModelBackend> backend)
+ModelNode::ModelNode(std::unique_ptr<IModelBackend> backend)
     : backend_(std::move(backend)) {}
 
 /**

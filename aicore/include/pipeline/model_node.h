@@ -6,7 +6,7 @@ namespace aicore {
 
 class ModelNode : public IProcessor {
 public:
-    explicit ModelNode(std::shared_ptr<IModelBackend> backend);
+    explicit ModelNode(std::unique_ptr<IModelBackend> backend);
     Status Init(const NodeConfig& config) override;
     Status Process(const std::vector<Frame>& inputs,
                    std::vector<Frame>& outputs) override;

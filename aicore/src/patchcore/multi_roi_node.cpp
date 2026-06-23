@@ -71,7 +71,7 @@ Status MultiRoiNode::Init(const NodeConfig& config) {
                 " (" + loadStatus.message + ")"};
         }
 
-        slots_.push_back(slot);
+        slots_.push_back(std::move(slot));
     }
 
     // ---- 尝试将各 ROI 的 MemoryBank 提升至 GPU ----
