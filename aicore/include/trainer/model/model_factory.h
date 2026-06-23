@@ -11,6 +11,7 @@ namespace aicore {
 enum class ModelArch {
     kSimpleCNN,  // 简单卷积神经网络（适合快速实验）
     kResNet18,   // ResNet-18 残差网络（适合中等规模任务）
+    kYOLOv8,     // YOLOv8 目标检测网络
     kCustom      // 用户自定义架构
 };
 
