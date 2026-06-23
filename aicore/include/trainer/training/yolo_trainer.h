@@ -1,4 +1,5 @@
 #pragma once
+#include "core/types.h"
 #include "trainer/model/yolo_model.h"
 #include "trainer/model/yolo_loss.h"
 #include "trainer/data/yolo_data.h"
@@ -45,7 +46,7 @@ struct YOLOTrainProgress {
     std::string errorMsg;
 };
 
-class YOLOTrainer {
+class AICORE_TRAINER_API YOLOTrainer {
 public:
     explicit YOLOTrainer(const YOLOTrainConfig& config);
     ~YOLOTrainer() = default;

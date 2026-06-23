@@ -12,6 +12,7 @@
 #include <QTimer>
 #include <QFutureWatcher>
 #include <atomic>
+#include <mutex>
 #include <string>
 
 class TrainingDialog : public QDialog {
@@ -38,6 +39,7 @@ private:
     std::atomic<bool> stopRequested_{false};
     std::string progressFile_;
     std::exception_ptr trainException_;
+    std::mutex progressMutex_;
 
     // PatchCore tab
     QLineEdit* pcDataDir_ = nullptr;
@@ -49,8 +51,10 @@ private:
     QDoubleSpinBox* pcCoreset_ = nullptr;
     QCheckBox* pcForceStream_ = nullptr;
 
-    // YOLO tab
-    QLineEdit* yDataConfig_ = nullptr;
+    // YOLO tab (原生 C++ YOLOTrainer)
+    QLineEdit* yTrainImgDir_ = nullptr;
+    QLineEdit* yTrainLabelDir_ = nullptr;
+    QSpinBox* yNumClasses_ = nullptr;
     QLineEdit* yModelPath_ = nullptr;
     QSpinBox* yEpochs_ = nullptr;
     QSpinBox* yImgsz_ = nullptr;

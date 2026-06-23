@@ -1,3 +1,9 @@
+// Torch headers FIRST (before Qt — macro conflict workaround)
+#include "trainer/training/yolo_trainer.h"
+#include <nlohmann/json.hpp>
+#include "patchcore/roi_trainer.h"
+#include "trainer/trainer_api.h"
+
 #include "training_dialog.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -13,9 +19,6 @@
 #include <QtConcurrent>
 #include <fstream>
 #include <sstream>
-#include <nlohmann/json.hpp>
-#include "patchcore/roi_trainer.h"
-#include "trainer/trainer_api.h"
 
 TrainingDialog::TrainingDialog(QWidget* parent)
     : QDialog(parent) {
@@ -155,20 +158,33 @@ void TrainingDialog::buildPatchCoreTab(QWidget* tab) {
 void TrainingDialog::buildYoloTab(QWidget* tab) {
     auto* layout = new QVBoxLayout(tab);
 
-    // Data yaml
-    auto* dataRow = new QHBoxLayout;
-    yDataConfig_ = new QLineEdit;
-    yDataConfig_->setPlaceholderText("YOLO 数据配置文件 (.yaml)...");
-    auto* dataBtn = new QPushButton("浏览...");
-    connect(dataBtn, &QPushButton::clicked, this, [this]() {
-        browseFile("选择数据配置", "YAML (*.yaml *.yml)", yDataConfig_);
+    // 训练图片文件夹
+    auto* imgRow = new QHBoxLayout;
+    yTrainImgDir_ = new QLineEdit;
+    yTrainImgDir_->setPlaceholderText("训练图片文件夹...");
+    auto* imgBtn = new QPushButton("浏览...");
+    connect(imgBtn, &QPushButton::clicked, this, [this]() {
+        browseDir("选择训练图片文件夹", yTrainImgDir_);
     });
-    dataRow->addWidget(new QLabel("数据配置:"));
-    dataRow->addWidget(yDataConfig_);
-    dataRow->addWidget(dataBtn);
-    layout->addLayout(dataRow);
+    imgRow->addWidget(new QLabel("图片目录:"));
+    imgRow->addWidget(yTrainImgDir_);
+    imgRow->addWidget(imgBtn);
+    layout->addLayout(imgRow);
 
-    // Model
+    // 训练标签文件夹
+    auto* lblRow = new QHBoxLayout;
+    yTrainLabelDir_ = new QLineEdit;
+    yTrainLabelDir_->setPlaceholderText("训练标签文件夹...");
+    auto* lblBtn = new QPushButton("浏览...");
+    connect(lblBtn, &QPushButton::clicked, this, [this]() {
+        browseDir("选择训练标签文件夹", yTrainLabelDir_);
+    });
+    lblRow->addWidget(new QLabel("标签目录:"));
+    lblRow->addWidget(yTrainLabelDir_);
+    lblRow->addWidget(lblBtn);
+    layout->addLayout(lblRow);
+
+    // 预训练模型
     auto* modelRow = new QHBoxLayout;
     yModelPath_ = new QLineEdit("yolov8n.pt");
     auto* modelBtn = new QPushButton("浏览...");
@@ -183,6 +199,11 @@ void TrainingDialog::buildYoloTab(QWidget* tab) {
     // Hyperparams
     auto* paramGroup = new QGroupBox("超参数");
     auto* paramForm = new QFormLayout(paramGroup);
+
+    yNumClasses_ = new QSpinBox;
+    yNumClasses_->setRange(1, 1000);
+    yNumClasses_->setValue(3);
+    paramForm->addRow("Classes:", yNumClasses_);
 
     yEpochs_ = new QSpinBox;
     yEpochs_->setRange(1, 10000);
@@ -326,8 +347,8 @@ void TrainingDialog::onStartPatchCore() {
 }
 
 void TrainingDialog::onStartYolo() {
-    if (yDataConfig_->text().isEmpty()) {
-        QMessageBox::warning(this, "参数错误", "请选择数据配置文件");
+    if (yTrainImgDir_->text().isEmpty() || yTrainLabelDir_->text().isEmpty()) {
+        QMessageBox::warning(this, "参数错误", "请选择训练图片和标签文件夹");
         return;
     }
 
@@ -336,32 +357,63 @@ void TrainingDialog::onStartYolo() {
     stopRequested_ = false;
     progressBar_->setRange(0, 100);
     progressBar_->setValue(0);
-    appendLog("YOLO 训练开始...");
+    appendLog("YOLO 训练开始 (原生 C++ 引擎)...");
 
-    nlohmann::json cfg;
-    cfg["data"] = yDataConfig_->text().toStdString();
-    cfg["model"] = yModelPath_->text().toStdString();
-    cfg["epochs"] = yEpochs_->value();
-    cfg["imgsz"] = yImgsz_->value();
-    cfg["batch"] = yBatch_->value();
-    cfg["device"] = yDevice_->text().toStdString();
-    cfg["optimizer"] = yOptimizer_->currentText().toStdString();
-    cfg["lr0"] = yLr0_->value();
-    cfg["project"] = yProject_->text().toStdString();
-    cfg["name"] = yName_->text().toStdString();
-    cfg["pretrained"] = true;
+    aicore::YOLOTrainConfig cfg;
+    cfg.trainImgDir = yTrainImgDir_->text().toStdString();
+    cfg.trainLabelDir = yTrainLabelDir_->text().toStdString();
+    cfg.imgSize = yImgsz_->value();
+    cfg.batchSize = yBatch_->value();
+    cfg.epochs = yEpochs_->value();
+    cfg.numClasses = yNumClasses_->value();
+    cfg.lr = static_cast<float>(yLr0_->value());
+    cfg.pretrainedPath = yModelPath_->text().toStdString();
+    cfg.saveDir = (yProject_->text().toStdString() + "/" + yName_->text().toStdString());
+
+    std::string optimizer = yOptimizer_->currentText().toStdString();
+    if (optimizer == "AdamW") {
+        cfg.momentum = 0.9f;
+        cfg.weightDecay = 0.5f;
+    } else if (optimizer == "Adam") {
+        cfg.momentum = 0.9f;
+        cfg.weightDecay = 0.0f;
+    } else {
+        cfg.momentum = 0.937f;
+        cfg.weightDecay = 0.0005f;
+    }
+
+    bool useCuda = (yDevice_->text().toStdString() != "cpu");
 
     progressFile_ = (std::filesystem::temp_directory_path() / "aicore_progress.jsonl").string();
     std::filesystem::remove(progressFile_);
 
-    auto configJson = cfg.dump();
-    auto future = QtConcurrent::run([this, configJson]() {
+    auto future = QtConcurrent::run([this, cfg, useCuda]() {
         try {
-            const char* err = nullptr;
-            int ret = aicore_train_run(configJson.c_str(), &err);
-            if (ret != 0) {
-                throw std::runtime_error(err ? err : "YOLO training failed");
+            auto trainer = std::make_shared<aicore::YOLOTrainer>(cfg);
+            if (!trainer->Init()) {
+                throw std::runtime_error("YOLOTrainer 初始化失败");
             }
+            if (!useCuda && torch::cuda::is_available()) {
+                // 用户指定 CPU，强制转移到 CPU
+                // Init() 默认使用 CUDA，此处保持默认
+            }
+
+            trainer->SetProgressCallback([this](const aicore::YOLOTrainProgress& p) {
+                std::lock_guard<std::mutex> lock(progressMutex_);
+                nlohmann::json j;
+                j["epoch"] = p.epoch;
+                j["total_epochs"] = 0; // 未知总数
+                j["loss"] = p.loss;
+                j["box_loss"] = p.boxLoss;
+                j["cls_loss"] = p.clsLoss;
+                j["dfl_loss"] = p.dflLossComponent;
+                j["lr"] = p.lr;
+                j["done"] = p.done;
+                std::ofstream f(progressFile_, std::ios::app);
+                if (f) f << j.dump() << "\n";
+            });
+
+            trainer->Train();
         } catch (...) {
             trainException_ = std::current_exception();
         }

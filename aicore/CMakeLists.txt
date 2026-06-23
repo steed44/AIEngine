@@ -228,3 +228,8 @@ target_link_libraries(AICoreUI PRIVATE
     Qt5::Widgets Qt5::Concurrent
     aicore aicore_trainer
 )
+if(Torch_FOUND)
+    target_include_directories(AICoreUI PRIVATE "${TORCH_INSTALL_PREFIX}/include")
+    target_include_directories(AICoreUI PRIVATE "${TORCH_INSTALL_PREFIX}/include/torch/csrc/api/include")
+    target_link_libraries(AICoreUI PRIVATE ${TORCH_LIBRARIES})
+endif()
