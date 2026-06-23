@@ -50,6 +50,7 @@ private:
         torch::Tensor targetBox;    // [M, 4] x1y1x2y2
         torch::Tensor targetCls;    // [M]
         torch::Tensor targetScore;  // [M] task-aligned score
+        torch::Tensor flatIdx;      // [M] prediction index in mergedFlat
         std::vector<int> batchIdx;  // [M]
     };
 

@@ -132,31 +132,86 @@ YOLOLoss::AssignResult YOLOLoss::assignTargets(
     const torch::Tensor& targets) {
 
     AssignResult result;
-    if (targets.size(0) == 0) {
+    int64_t numTargets = targets.size(0);
+    int numScales = (int)preds.size();
+
+    if (numTargets == 0 || numScales == 0) {
         result.targetBox = torch::empty({0, 4});
         result.targetCls = torch::empty({0});
         result.targetScore = torch::empty({0});
+        result.flatIdx = torch::empty({0}, torch::kLong);
         return result;
     }
 
-    // 简单分配: 每个 GT 分配到 stride 最接近的尺度
-    // 对于 YOLOv8 的简化实现，分配所有 GT 到所有尺度的所有 grid
-    // 实际 YOLOv8 使用 TaskAlignedAssigner
-    // 这里做简化: 按比例分配 targets 到各尺度
+    auto device = targets.device();
 
-    auto bi = targets.index({"...", 0}).to(torch::kLong);
-    auto cls = targets.index({"...", 1}).to(torch::kLong);
-    auto boxes = targets.index({"...", torch::indexing::Slice(2, 6)}); // cx,cy,w,h
-    auto xyxy = boxCxwhToXyxy(boxes);
-
-    result.targetBox = xyxy;
-    result.targetCls = cls;
-    result.targetScore = torch::ones_like(cls.to(torch::kFloat));
-    {
-        auto biCpu = bi.cpu();
-        auto* ptr = biCpu.data_ptr<int64_t>();
-        result.batchIdx.assign(ptr, ptr + biCpu.size(0));
+    // 预计算各尺度 grid 数用于 flatIdx 编码
+    int64_t totalGrids = 0;
+    std::vector<int64_t> gridsPerScale(numScales);
+    std::vector<int64_t> cumPrev(numScales + 1, 0);
+    for (int i = 0; i < numScales; ++i) {
+        gridsPerScale[i] = preds[i].size(2) * preds[i].size(3);
+        cumPrev[i + 1] = cumPrev[i] + gridsPerScale[i];
     }
+    totalGrids = cumPrev[numScales];
+    int64_t batchSize = preds[0].size(0);
+
+    // 逐 GT 匹配到各尺度下的中心 grid cell
+    std::vector<float> boxBuf, clsBuf, scoreBuf;
+    std::vector<int64_t> idxBuf;
+    std::vector<int> batchBuf;
+
+    for (int64_t ti = 0; ti < numTargets; ++ti) {
+        auto t = targets[ti];
+        int64_t bi = (int64_t)t[0].item<float>();
+        int64_t clsid = (int64_t)t[1].item<float>();
+        float cx = t[2].item<float>();
+        float cy = t[3].item<float>();
+        float w  = t[4].item<float>();
+        float h  = t[5].item<float>();
+
+        for (int si = 0; si < numScales; ++si) {
+            int64_t H = preds[si].size(2);
+            int64_t W = preds[si].size(3);
+            int64_t gx = (int64_t)(cx * W);
+            int64_t gy = (int64_t)(cy * H);
+            if (gx < 0 || gx >= W || gy < 0 || gy >= H) continue;
+
+            int64_t idx = bi * totalGrids + cumPrev[si] + gy * W + gx;
+            float x1 = cx - w / 2;
+            float y1 = cy - h / 2;
+            float x2 = cx + w / 2;
+            float y2 = cy + h / 2;
+
+            idxBuf.push_back(idx);
+            boxBuf.insert(boxBuf.end(), { x1, y1, x2, y2 });
+            clsBuf.push_back((float)clsid);
+            scoreBuf.push_back(1.0f);
+            batchBuf.push_back((int)bi);
+        }
+    }
+
+    if (idxBuf.empty()) {
+        result.targetBox = torch::empty({0, 4});
+        result.targetCls = torch::empty({0});
+        result.targetScore = torch::empty({0});
+        result.flatIdx = torch::empty({0}, torch::kLong);
+        return result;
+    }
+
+    // 构造 tensor: from_blob 不拥有数据，必须 clone()
+    // .to() 在 CPU 下是 no-op，vector 析构后 tensor 悬空
+    result.flatIdx = torch::from_blob(idxBuf.data(), { (int64_t)idxBuf.size() },
+        torch::TensorOptions(torch::kLong)).clone().to(device);
+    {
+        auto rawBox = torch::from_blob(boxBuf.data(), { (int64_t)(boxBuf.size() / 4), 4 });
+        auto rawCls = torch::from_blob(clsBuf.data(), { (int64_t)clsBuf.size() });
+        auto rawScore = torch::from_blob(scoreBuf.data(), { (int64_t)scoreBuf.size() });
+        result.targetBox = rawBox.clone().to(device);
+        result.targetCls = rawCls.clone().to(device).to(torch::kLong);
+        result.targetScore = rawScore.clone().to(device);
+    }
+    result.batchIdx = std::move(batchBuf);
 
     return result;
 }
@@ -166,10 +221,10 @@ YOLOLossOutput YOLOLoss::operator()(
     const torch::Tensor& targets) {
 
     auto assign = assignTargets(preds, targets);
-    auto numTargets = assign.targetBox.size(0);
+    auto numAssign = assign.targetBox.size(0);
     auto device = targets.device();
 
-    if (numTargets == 0 || preds.empty()) {
+    if (numAssign == 0 || preds.empty()) {
         auto zero = torch::full({}, 0.0,
             torch::TensorOptions().device(device).requires_grad(true));
         return { zero, zero, zero, zero };
@@ -181,10 +236,9 @@ YOLOLossOutput YOLOLoss::operator()(
     }
     auto merged = torch::cat(allPreds, 1);
     auto mergedFlat = merged.flatten(0, 1);
-    auto takeN = std::min(numTargets, mergedFlat.size(0));
-    auto boxCoords = mergedFlat.index({torch::indexing::Slice(0, takeN), torch::indexing::Slice(0, 4)});
-    auto targetBox = assign.targetBox.index({torch::indexing::Slice(0, takeN)});
-    auto lossBox = ciouLoss(boxCoords, targetBox).mean();
+
+    auto boxCoords = mergedFlat.index({assign.flatIdx, torch::indexing::Slice(0, 4)});
+    auto lossBox = ciouLoss(boxCoords, assign.targetBox).mean();
 
     auto lossDfl = torch::full({}, 0.0,
         torch::TensorOptions().device(device));
