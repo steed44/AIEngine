@@ -16,6 +16,7 @@ add_executable(aicore_tests ${TEST_SOURCES})
 target_include_directories(aicore_tests PRIVATE ${CMAKE_SOURCE_DIR}/include)
 target_include_directories(aicore_tests PRIVATE ${CMAKE_SOURCE_DIR}/third_party)
 target_include_directories(aicore_tests PRIVATE ${OpenCV_INCLUDE_DIRS})
+target_include_directories(aicore_tests PRIVATE ${Python3_INCLUDE_DIRS})
 
 # 将各模块的被测源文件编译进测试程序
 target_sources(aicore_tests PRIVATE
@@ -25,6 +26,7 @@ target_sources(aicore_tests PRIVATE
     ${CMAKE_SOURCE_DIR}/src/config/pipeline_builder.cpp
     ${CMAKE_SOURCE_DIR}/src/engine/thread_pool.cpp
     ${CMAKE_SOURCE_DIR}/src/engine/engine_pool.cpp
+    ${CMAKE_SOURCE_DIR}/src/engine/ai_engine.cpp
     ${CMAKE_SOURCE_DIR}/src/pipeline/pipeline_impl.cpp
     ${CMAKE_SOURCE_DIR}/src/pipeline/model_node.cpp
     ${CMAKE_SOURCE_DIR}/src/pipeline/composite_node.cpp
@@ -32,6 +34,7 @@ target_sources(aicore_tests PRIVATE
     ${CMAKE_SOURCE_DIR}/src/preprocess/resize_node.cpp
     ${CMAKE_SOURCE_DIR}/src/preprocess/normalize_node.cpp
     ${CMAKE_SOURCE_DIR}/src/postprocess/nms_node.cpp
+    ${CMAKE_SOURCE_DIR}/src/api/aicore_api.cpp
     # Phase 2 — Optimizer: 模型优化模块
     ${CMAKE_SOURCE_DIR}/src/optimizer/python_embedding.cpp
     ${CMAKE_SOURCE_DIR}/src/optimizer/onnx_exporter.cpp
@@ -61,15 +64,23 @@ target_sources(aicore_tests PRIVATE
     ${CMAKE_SOURCE_DIR}/src/patchcore/patchcore_node.cpp
     ${CMAKE_SOURCE_DIR}/src/patchcore/patchcore_trainer.cpp
     ${CMAKE_SOURCE_DIR}/src/patchcore/folder_dataset.cpp
+    ${CMAKE_SOURCE_DIR}/src/patchcore/tiered_memory_bank.cpp
+    ${CMAKE_SOURCE_DIR}/src/patchcore/memory_manager.cpp
     # Multi-ROI: 多区域多模型支持
     ${CMAKE_SOURCE_DIR}/src/patchcore/roi_def.cpp
     ${CMAKE_SOURCE_DIR}/src/patchcore/roi_trainer.cpp
     ${CMAKE_SOURCE_DIR}/src/patchcore/multi_roi_node.cpp
 )
 
-# 可选：LibTorch backbone 源文件
+# 可选：LibTorch 源文件
 if(Torch_FOUND)
-    target_sources(aicore_tests PRIVATE ${CMAKE_SOURCE_DIR}/src/patchcore/backbone_libtorch.cpp)
+    target_sources(aicore_tests PRIVATE
+        ${CMAKE_SOURCE_DIR}/src/patchcore/backbone_libtorch.cpp
+        ${CMAKE_SOURCE_DIR}/src/trainer/model/yolo_model.cpp
+        ${CMAKE_SOURCE_DIR}/src/trainer/model/yolo_loss.cpp
+        ${CMAKE_SOURCE_DIR}/src/trainer/data/yolo_data.cpp
+        ${CMAKE_SOURCE_DIR}/src/trainer/training/yolo_trainer.cpp
+    )
 endif()
 
 # 编译宏定义：允许测试访问内部符号
@@ -83,7 +94,15 @@ if(Torch_FOUND)
 endif()
 
 # 链接 GTest 和 OpenCV
-target_link_libraries(aicore_tests PRIVATE GTest::GTest GTest::Main ${OpenCV_LIBS})
+target_link_libraries(aicore_tests PRIVATE GTest::GTest GTest::Main ${OpenCV_LIBS} Python3::Python)
+get_filename_component(PYTHON3_HOME "${Python3_EXECUTABLE}" DIRECTORY)
+target_compile_definitions(aicore_tests PRIVATE PYTHON3_HOME="${PYTHON3_HOME}")
+# 嵌入式 Python 需要 python3.dll
+if(PYTHON3_DLL)
+    add_custom_command(TARGET aicore_tests POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${PYTHON3_DLL}" "$<TARGET_FILE_DIR:aicore_tests>")
+endif()
 if(Torch_FOUND)
     target_include_directories(aicore_tests PRIVATE "${TORCH_INSTALL_PREFIX}/include")
     target_include_directories(aicore_tests PRIVATE "${TORCH_INSTALL_PREFIX}/include/torch/csrc/api/include")

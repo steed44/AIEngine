@@ -19,6 +19,9 @@ find_package(OpenCV 4.7.0 REQUIRED)
 find_package(CUDAToolkit REQUIRED)
 find_package(GTest REQUIRED)
 
+# Python3 嵌入支持（PythonEmbedding、PythonTrainer）
+find_package(Python3 REQUIRED COMPONENTS Interpreter Development)
+
 # LibTorch (PatchCore backbone, 可选)
 find_package(Torch QUIET)
 if(Torch_FOUND)
@@ -105,9 +108,22 @@ target_include_directories(aicore_optimizer
     PUBLIC  ${CMAKE_SOURCE_DIR}/include
     PRIVATE ${NLOHMANN_JSON_DIR}
     PRIVATE ${OpenCV_INCLUDE_DIRS}
+    PRIVATE ${Python3_INCLUDE_DIRS}
 )
-target_link_libraries(aicore_optimizer PRIVATE ${OpenCV_LIBS})
+target_link_libraries(aicore_optimizer PRIVATE ${OpenCV_LIBS} Python3::Python)
 target_compile_definitions(aicore_optimizer PRIVATE AICORE_OPTIMIZER_EXPORTS)
+# Python 嵌入需要知道标准库位置
+get_filename_component(PYTHON3_HOME "${Python3_EXECUTABLE}" DIRECTORY)
+target_compile_definitions(aicore_optimizer PRIVATE PYTHON3_HOME="${PYTHON3_HOME}")
+# 嵌入式 Python 需要 python3.dll（稳定 ABI）在输出目录中
+find_file(PYTHON3_DLL python3.dll
+    PATHS "${Python3_LIBRARY_DIRS}" "${Python3_EXECUTABLE}/../../bin"
+    NO_DEFAULT_PATH)
+if(PYTHON3_DLL)
+    add_custom_command(TARGET aicore_optimizer POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${PYTHON3_DLL}" "$<TARGET_FILE_DIR:aicore_optimizer>")
+endif()
 
 # ──────────────────────────────────────────────
 # 训练模块 DLL (aicore_trainer.dll)
@@ -118,6 +134,10 @@ set(AICORE_TRAINER_SOURCES
     src/trainer/data/augmentation.cpp
     src/trainer/model/model_factory.cpp
     src/trainer/model/python_trainer.cpp
+    src/trainer/model/yolo_model.cpp
+    src/trainer/model/yolo_loss.cpp
+    src/trainer/data/yolo_data.cpp
+    src/trainer/training/yolo_trainer.cpp
     src/trainer/training/training_loop.cpp
     src/trainer/training/training_scheduler.cpp
     src/trainer/training/checkpoint.cpp
@@ -135,6 +155,11 @@ target_include_directories(aicore_trainer
     PRIVATE ${OpenCV_INCLUDE_DIRS}
 )
 target_link_libraries(aicore_trainer PRIVATE aicore_optimizer ${OpenCV_LIBS})
+if(Torch_FOUND)
+    target_include_directories(aicore_trainer PRIVATE "${TORCH_INSTALL_PREFIX}/include")
+    target_include_directories(aicore_trainer PRIVATE "${TORCH_INSTALL_PREFIX}/include/torch/csrc/api/include")
+    target_link_libraries(aicore_trainer PRIVATE ${TORCH_LIBRARIES})
+endif()
 target_compile_definitions(aicore_trainer PRIVATE AICORE_TRAINER_EXPORTS)
 
 # ──────────────────────────────────────────────
@@ -192,6 +217,14 @@ find_package(Qt5 REQUIRED COMPONENTS Widgets Concurrent)
 add_executable(AICoreUI
     gui/main.cpp
     gui/main_window.cpp
+    gui/training_dialog.cpp
 )
-target_include_directories(AICoreUI PRIVATE ${CMAKE_SOURCE_DIR}/include)
-target_link_libraries(AICoreUI PRIVATE Qt5::Widgets Qt5::Concurrent aicore)
+target_include_directories(AICoreUI
+    PRIVATE ${CMAKE_SOURCE_DIR}/include
+    PRIVATE ${NLOHMANN_JSON_DIR}
+    PRIVATE ${OpenCV_INCLUDE_DIRS}
+)
+target_link_libraries(AICoreUI PRIVATE
+    Qt5::Widgets Qt5::Concurrent
+    aicore aicore_trainer
+)
