@@ -145,7 +145,6 @@ YOLOLoss::AssignResult YOLOLoss::assignTargets(
 
     auto device = targets.device();
 
-    // 预计算各尺度 grid 数用于 flatIdx 编码
     int64_t totalGrids = 0;
     std::vector<int64_t> gridsPerScale(numScales);
     std::vector<int64_t> cumPrev(numScales + 1, 0);
@@ -156,9 +155,8 @@ YOLOLoss::AssignResult YOLOLoss::assignTargets(
     totalGrids = cumPrev[numScales];
     int64_t batchSize = preds[0].size(0);
 
-    // 逐 GT 匹配到各尺度下的中心 grid cell
-    std::vector<float> boxBuf, clsBuf, scoreBuf;
-    std::vector<int64_t> idxBuf;
+    std::vector<float> boxBuf, clsBuf, scoreBuf, gcxBuf, gcyBuf;
+    std::vector<int64_t> idxBuf, strideBuf;
     std::vector<int> batchBuf;
 
     for (int64_t ti = 0; ti < numTargets; ++ti) {
@@ -183,33 +181,47 @@ YOLOLoss::AssignResult YOLOLoss::assignTargets(
             float x2 = cx + w / 2;
             float y2 = cy + h / 2;
 
+            float gridNormCx = (gx + 0.5f) / W;
+            float gridNormCy = (gy + 0.5f) / H;
+
             idxBuf.push_back(idx);
             boxBuf.insert(boxBuf.end(), { x1, y1, x2, y2 });
             clsBuf.push_back((float)clsid);
             scoreBuf.push_back(1.0f);
             batchBuf.push_back((int)bi);
+            gcxBuf.push_back(gridNormCx);
+            gcyBuf.push_back(gridNormCy);
+            strideBuf.push_back(cfg_.strides[si]);
         }
     }
 
     if (idxBuf.empty()) {
-        result.targetBox = torch::empty({0, 4});
-        result.targetCls = torch::empty({0});
-        result.targetScore = torch::empty({0});
-        result.flatIdx = torch::empty({0}, torch::kLong);
+        result.targetBox = torch::empty({0, 4}, device).to(device);
+        result.targetCls = torch::empty({0}, torch::kLong).to(device);
+        result.targetScore = torch::empty({0}, device);
+        result.flatIdx = torch::empty({0}, torch::kLong).to(device);
+        result.gridCx = torch::empty({0}, device);
+        result.gridCy = torch::empty({0}, device);
+        result.strides = torch::empty({0}, device);
         return result;
     }
 
-    // 构造 tensor: from_blob 不拥有数据，必须 clone()
-    // .to() 在 CPU 下是 no-op，vector 析构后 tensor 悬空
     result.flatIdx = torch::from_blob(idxBuf.data(), { (int64_t)idxBuf.size() },
         torch::TensorOptions(torch::kLong)).clone().to(device);
     {
         auto rawBox = torch::from_blob(boxBuf.data(), { (int64_t)(boxBuf.size() / 4), 4 });
         auto rawCls = torch::from_blob(clsBuf.data(), { (int64_t)clsBuf.size() });
         auto rawScore = torch::from_blob(scoreBuf.data(), { (int64_t)scoreBuf.size() });
+        auto rawGcx = torch::from_blob(gcxBuf.data(), { (int64_t)gcxBuf.size() });
+        auto rawGcy = torch::from_blob(gcyBuf.data(), { (int64_t)gcyBuf.size() });
+        auto rawStride = torch::from_blob(strideBuf.data(), { (int64_t)strideBuf.size() },
+            torch::TensorOptions(torch::kLong));
         result.targetBox = rawBox.clone().to(device);
         result.targetCls = rawCls.clone().to(device).to(torch::kLong);
         result.targetScore = rawScore.clone().to(device);
+        result.gridCx = rawGcx.clone().to(device);
+        result.gridCy = rawGcy.clone().to(device);
+        result.strides = rawStride.clone().to(device);
     }
     result.batchIdx = std::move(batchBuf);
 
@@ -221,7 +233,7 @@ YOLOLossOutput YOLOLoss::operator()(
     const torch::Tensor& targets) {
 
     auto assign = assignTargets(preds, targets);
-    auto numAssign = assign.targetBox.size(0);
+    int64_t numAssign = assign.targetBox.size(0);
     auto device = targets.device();
 
     if (numAssign == 0 || preds.empty()) {
@@ -230,6 +242,10 @@ YOLOLossOutput YOLOLoss::operator()(
         return { zero, zero, zero, zero };
     }
 
+    int regMax = cfg_.regMax;
+    int no = 4 * regMax + cfg_.numClasses;
+
+    // [B*totalGrids, no]
     std::vector<torch::Tensor> allPreds;
     for (size_t i = 0; i < preds.size(); ++i) {
         allPreds.push_back(preds[i].flatten(2).transpose(1, 2));
@@ -237,13 +253,71 @@ YOLOLossOutput YOLOLoss::operator()(
     auto merged = torch::cat(allPreds, 1);
     auto mergedFlat = merged.flatten(0, 1);
 
-    auto boxCoords = mergedFlat.index({assign.flatIdx, torch::indexing::Slice(0, 4)});
-    auto lossBox = ciouLoss(boxCoords, assign.targetBox).mean();
+    auto flatIdx = assign.flatIdx;
 
-    auto lossDfl = torch::full({}, 0.0,
+    // 1. 提取回归分布 [M, 4*regMax] 和分类预测 [M, nc]
+    auto predReg = mergedFlat.index({flatIdx, torch::indexing::Slice(0, 4 * regMax)});
+    auto predCls = mergedFlat.index({flatIdx,
+        torch::indexing::Slice(4 * regMax, no)});
+
+    // 2. DFL 解码: [M, 4*regMax] → [M, 4] (l, r, t, b 网格单位偏移)
+    auto regDist = predReg.reshape({numAssign, 4, regMax});
+    auto dflProb = torch::softmax(regDist, 2);
+    auto proj = torch::arange(0, regMax, torch::kFloat).to(device);
+    // dflVals: [M, 4] 连续值 0..regMax-1, 网格单位
+    auto dflVals = (dflProb * proj).sum(2);
+
+    // 3. DFL 网格单位偏移 → 归一化 x1y1x2y2
+    // dflVals 是网格单位 (0..regMax-1), 一个网格 = stride 像素
+    // 归一化: 一个网格 = 1/W (归一化宽度), 所以: 归一化偏移 = dflVals / W
+    // W = imgSize / stride, 可从前两个尺度间的比例推算: W0 * stride[0] = imgSize
+    float imgSize = (float)(preds[0].size(3) * cfg_.strides[0]);
+    auto gridW = torch::full_like(assign.strides.to(torch::kFloat),
+        imgSize) / assign.strides.to(torch::kFloat);
+    auto gridH = gridW.clone();
+
+    auto lOff = dflVals.index({"...", 0}) / gridW;
+    auto tOff = dflVals.index({"...", 1}) / gridH;
+    auto rOff = dflVals.index({"...", 2}) / gridW;
+    auto bOff = dflVals.index({"...", 3}) / gridH;
+
+    auto predX1 = assign.gridCx - lOff;
+    auto predY1 = assign.gridCy - tOff;
+    auto predX2 = assign.gridCx + rOff;
+    auto predY2 = assign.gridCy + bOff;
+
+    auto predBoxes = torch::stack({predX1, predY1, predX2, predY2}, 1);
+
+    // 4. CIoU 损失
+    auto lossBox = ciouLoss(predBoxes, assign.targetBox).mean();
+
+    // 5. DFL 损失: 目标 box → ltrb 网格单位偏移
+    auto tgX1 = assign.targetBox.index({"...", 0});
+    auto tgY1 = assign.targetBox.index({"...", 1});
+    auto tgX2 = assign.targetBox.index({"...", 2});
+    auto tgY2 = assign.targetBox.index({"...", 3});
+    auto tgL = (assign.gridCx - tgX1) * gridW;
+    auto tgT = (assign.gridCy - tgY1) * gridH;
+    auto tgR = (tgX2 - assign.gridCx) * gridW;
+    auto tgB = (tgY2 - assign.gridCy) * gridH;
+    auto targetLtrb = torch::stack({tgL, tgT, tgR, tgB}, 1);
+    targetLtrb = torch::clamp(targetLtrb, 0, (float)regMax - 0.01f);
+
+    // DFL 损失: 对 4 个边各算一次 CE + 平均
+    auto dflLossTotal = torch::full({}, 0.0, torch::TensorOptions().device(device));
+    for (int si = 0; si < 4; ++si) {
+        dflLossTotal = dflLossTotal + dflLoss(
+            regDist.index({"...", si}),  // [M, regMax]
+            targetLtrb.index({"...", si}), // [M]
+            regMax).mean();
+    }
+    auto lossDfl = dflLossTotal / 4;
+
+    // 6. 分类损失: BCE
+    auto targetOnehot = torch::zeros({numAssign, cfg_.numClasses},
         torch::TensorOptions().device(device));
-    auto lossCls = torch::full({}, 0.0,
-        torch::TensorOptions().device(device));
+    targetOnehot.scatter_(1, assign.targetCls.unsqueeze(-1), 1.0);
+    auto lossCls = bceLoss(predCls, targetOnehot);
 
     auto total = cfg_.boxWeight * lossBox + cfg_.clsWeight * lossCls + cfg_.dflWeight * lossDfl;
 

@@ -93,34 +93,29 @@ torch::Tensor SPPFImpl::forward(torch::Tensor x) {
 // ============================================================
 DetectImpl::DetectImpl(int nc_, const std::vector<int>& ch)
     : nc(nc_), nl((int)ch.size()) {
-    no = nc + 4 + nc; // cls + reg(4) + dfl(16)
-    // DFL 积分锚点 (range 0..15)
-    proj = torch::arange(0, 16, torch::kFloat);
+    int regMax = 16;
+    no = nc + 4 * regMax;
+    proj = torch::arange(0, regMax, torch::kFloat);
     register_buffer("proj", proj);
 
-    // 三尺度解耦检测头：每个尺度有 cls/reg/cvPCls 三个分支
-    int regMax = 16; // DFL 通道数
     for (int i = 0; i < nl; ++i) {
         auto idx = std::to_string(i);
         cvReg.push_back(torch::nn::Conv2d(register_module(
             "cvReg" + idx, torch::nn::Conv2d(
-                torch::nn::Conv2dOptions(ch[i], 2 * 4 * regMax, 1)))));
+                torch::nn::Conv2dOptions(ch[i], 4 * regMax, 1)))));
         cvCls.push_back(torch::nn::Conv2d(register_module(
             "cvCls" + idx, torch::nn::Conv2d(
-                torch::nn::Conv2dOptions(ch[i], 2 * nc, 1)))));
-        cvPCls.push_back(torch::nn::Conv2d(register_module(
-            "cvPCls" + idx, torch::nn::Conv2d(
-                torch::nn::Conv2dOptions(ch[i], 2 * regMax, 1)))));
+                torch::nn::Conv2dOptions(ch[i], nc, 1)))));
     }
 }
 
 torch::Tensor DetectImpl::forward(const std::vector<torch::Tensor>& xs) {
-    std::vector<torch::Tensor> outputs;
+    std::vector<torch::Tensor> regs, clss;
     for (int i = 0; i < nl; ++i) {
-        auto x = xs[i];
-        outputs.push_back(x);
+        regs.push_back(cvReg[i]->forward(xs[i]));
+        clss.push_back(cvCls[i]->forward(xs[i]));
     }
-    return torch::cat(outputs, 1);
+    return torch::cat({ torch::cat(regs, 1), torch::cat(clss, 1) }, 1);
 }
 
 // ============================================================
@@ -194,7 +189,7 @@ Status YOLOv8Model::Build(const ModelConfig& config) {
 
 // 前向传播：带 concat 的 YOLOv8 自定义 forward
 // 返回 detect 头处理后的三尺度输出 [B, no, H_i, W_i]
-// no = nc + 4 + nc  (cls + reg + dfl)
+// no = 4*regMax + nc  (reg + cls)
 std::vector<torch::Tensor> YOLOv8Model::Forward(torch::Tensor x) {
     if (!model_) return {};
 
@@ -235,8 +230,7 @@ std::vector<torch::Tensor> YOLOv8Model::Forward(torch::Tensor x) {
         auto f = neckOuts[i];
         auto reg = detect_->cvReg[i]->forward(f);
         auto cls = detect_->cvCls[i]->forward(f);
-        auto dfl = detect_->cvPCls[i]->forward(f);
-        result.push_back(torch::cat({ reg, cls, dfl }, 1));
+        result.push_back(torch::cat({ reg, cls }, 1));
     }
     return result;
 }

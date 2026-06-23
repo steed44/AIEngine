@@ -63,19 +63,16 @@ struct SPPFImpl : torch::nn::Module {
 };
 TORCH_MODULE(SPPF);
 
-// Detect — YOLOv8 解耦检测头
-// 三个尺度输出，每个尺度有 cls 分支和 reg 分支
+// Detect — YOLOv8 解耦检测头 (标准架构: 4*regMax reg + nc cls)
 struct DetectImpl : torch::nn::Module {
     DetectImpl(int nc, const std::vector<int>& ch);
     torch::Tensor forward(const std::vector<torch::Tensor>& xs);
 
-    int nc = 0;                      // 类别数
-    int no = 0;                      // 每个 anchor 的输出通道数
-    int nl = 0;                      // 检测层数
-    std::vector<torch::nn::Conv2d> cvCls;  // 分类分支
-    std::vector<torch::nn::Conv2d> cvReg;  // 回归分支
-    std::vector<torch::nn::Conv2d> cvPCls; // cls proj
-    // DFL 积分锚点
+    int nc = 0;
+    int no = 0;
+    int nl = 0;
+    std::vector<torch::nn::Conv2d> cvCls;
+    std::vector<torch::nn::Conv2d> cvReg;
     torch::Tensor proj;
 };
 TORCH_MODULE(Detect);

@@ -15,7 +15,7 @@ TEST(YOLOModelTest, ForwardReturnsCorrectShapes) {
     ASSERT_EQ(outputs.size(), 3);
 
     EXPECT_EQ(outputs[0].size(0), 1);
-    EXPECT_EQ(outputs[0].size(1), 128 + 2 * 3 + 32); // no = cvReg + cvCls + cvPCls
+    EXPECT_EQ(outputs[0].size(1), 4 * 16 + 3); // no = 4*regMax + nc
     EXPECT_EQ(outputs[0].size(2), 16);  // 128/8 = 16
     EXPECT_EQ(outputs[0].size(3), 16);
 
@@ -39,9 +39,8 @@ TEST(YOLOModelTest, PredictReturnsCorrectShape) {
     auto input = torch::randn({2, 3, 128, 128});
     auto out = model.predict(input);
 
-    // [B, no, total_grids]
     EXPECT_EQ(out.size(0), 2);
-    EXPECT_EQ(out.size(1), 128 + 2 * 3 + 32);
+    EXPECT_EQ(out.size(1), 4 * 16 + 3); // 4*regMax + nc
 
     int64_t totalGrids = 16*16 + 8*8 + 4*4; // 256 + 64 + 16 = 336
     EXPECT_EQ(out.size(2), totalGrids);

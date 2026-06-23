@@ -53,6 +53,7 @@ bool YOLOTrainer::Init() {
 
     // 3. Loss
     YOLOLossConfig lossCfg;
+    lossCfg.numClasses = config_.numClasses;
     lossFn_ = std::make_unique<YOLOLoss>(lossCfg);
 
     // 4. 优化器

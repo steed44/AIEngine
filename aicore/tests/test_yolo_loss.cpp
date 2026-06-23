@@ -202,11 +202,10 @@ TEST(YOLOLossTest, BCEGradientFlows) {
 
 TEST(YOLOLossTest, YOLOLossWithTargets) {
     YOLOLoss loss;
-    // mock 3-scale predictions
-    auto p1 = torch::zeros({1, 128, 8, 8});   // P3 scale
-    auto p2 = torch::zeros({1, 128, 4, 4});   // P4 scale
-    auto p3 = torch::zeros({1, 128, 2, 2});   // P5 scale
-    // single target (batch=0, cls=1, cx=0.5, cy=0.5, w=0.2, h=0.4)
+    int no = 4 * 16 + 3; // 4*regMax + nc = 67
+    auto p1 = torch::zeros({1, no, 8, 8});
+    auto p2 = torch::zeros({1, no, 4, 4});
+    auto p3 = torch::zeros({1, no, 2, 2});
     auto targets = torch::tensor({{0.0f, 1.0f, 0.5f, 0.5f, 0.2f, 0.4f}});
     auto out = loss({p1, p2, p3}, targets);
     EXPECT_TRUE(out.totalLoss.defined());
@@ -215,9 +214,10 @@ TEST(YOLOLossTest, YOLOLossWithTargets) {
 
 TEST(YOLOLossTest, YOLOLossEmptyTargets) {
     YOLOLoss loss;
-    auto p1 = torch::zeros({1, 128, 8, 8});
-    auto p2 = torch::zeros({1, 128, 4, 4});
-    auto p3 = torch::zeros({1, 128, 2, 2});
+    int no = 4 * 16 + 3;
+    auto p1 = torch::zeros({1, no, 8, 8});
+    auto p2 = torch::zeros({1, no, 4, 4});
+    auto p3 = torch::zeros({1, no, 2, 2});
     auto targets = torch::empty({0, 6});
     auto out = loss({p1, p2, p3}, targets);
     EXPECT_TRUE(out.totalLoss.defined());
@@ -234,9 +234,10 @@ TEST(YOLOLossTest, YOLOLossEmptyPredictions) {
 
 TEST(YOLOLossTest, YOLOLossGradientFlows) {
     YOLOLoss loss;
-    auto p1 = torch::zeros({1, 128, 8, 8}, torch::requires_grad());
-    auto p2 = torch::zeros({1, 128, 4, 4}, torch::requires_grad());
-    auto p3 = torch::zeros({1, 128, 2, 2}, torch::requires_grad());
+    int no = 4 * 16 + 3;
+    auto p1 = torch::zeros({1, no, 8, 8}, torch::requires_grad());
+    auto p2 = torch::zeros({1, no, 4, 4}, torch::requires_grad());
+    auto p3 = torch::zeros({1, no, 2, 2}, torch::requires_grad());
     auto targets = torch::tensor({{0.0f, 1.0f, 0.5f, 0.5f, 0.2f, 0.4f}});
     auto out = loss({p1, p2, p3}, targets);
     out.totalLoss.backward();

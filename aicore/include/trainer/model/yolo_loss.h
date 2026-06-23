@@ -29,6 +29,7 @@ struct YOLOLossOutput {
 };
 
 struct YOLOLossConfig {
+    int numClasses = 3;
     float boxWeight = 7.5f;
     float clsWeight = 0.5f;
     float dflWeight = 1.5f;
@@ -52,6 +53,9 @@ private:
         torch::Tensor targetScore;  // [M] task-aligned score
         torch::Tensor flatIdx;      // [M] prediction index in mergedFlat
         std::vector<int> batchIdx;  // [M]
+        torch::Tensor gridCx;       // [M] normalized grid center x
+        torch::Tensor gridCy;       // [M] normalized grid center y
+        torch::Tensor strides;      // [M] stride per assignment
     };
 
     AssignResult assignTargets(
