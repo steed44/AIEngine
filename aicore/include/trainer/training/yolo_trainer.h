@@ -27,7 +27,7 @@ struct YOLOTrainConfig {
     float lr = 0.01f;
     float momentum = 0.937f;
     float weightDecay = 0.0005f;
-    std::string saveDir = "./yolo_weights";
+    std::string saveDir = "./data/yolo_weights";
     std::string pretrainedPath; // 空字符串 = 从头训练
     int numClasses = 80;
     int warmupEpochs = 3;

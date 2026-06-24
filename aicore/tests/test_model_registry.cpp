@@ -48,6 +48,27 @@ TEST_F(ModelRegistryTest, GetActiveIncrementsRefCount) {
     EXPECT_EQ(slot2->refCount.load(), rc1 + 1);
 }
 
+// 测试：Contains 对存在的模型返回 true
+TEST_F(ModelRegistryTest, ContainsReturnsTrue) {
+    auto backend = MakeStub();
+    registry_.Replace("present_model", std::move(backend), 128, 1);
+    EXPECT_TRUE(registry_.Contains("present_model"));
+}
+
+// 测试：Contains 对不存在的模型返回 false
+TEST_F(ModelRegistryTest, ContainsReturnsFalse) {
+    EXPECT_FALSE(registry_.Contains("not_here"));
+}
+
+// 测试：Unload 后 Contains 返回 false
+TEST_F(ModelRegistryTest, ContainsAfterUnloadReturnsFalse) {
+    auto backend = MakeStub();
+    registry_.Replace("temp_model", std::move(backend), 64, 1);
+    EXPECT_TRUE(registry_.Contains("temp_model"));
+    registry_.Unload("temp_model");
+    EXPECT_FALSE(registry_.Contains("temp_model"));
+}
+
 // 测试：Unload 移除模型
 TEST_F(ModelRegistryTest, UnloadRemovesSlot) {
     auto backend = MakeStub();
@@ -87,12 +108,12 @@ TEST_F(ModelRegistryTest, EvictLRURemovesOldest) {
         registry_.Replace(name, std::move(backend), 100, 1);
     }
     // 模拟使用顺序：model_0 最早，model_2 最新
-    // GetActive 递增 refCount，完成后手动释放
+    // GetActive 递增 refCount，完成后通过 Release 释放
     for (int i = 0; i < 3; i++) {
         std::string name = "model_" + std::to_string(i);
         auto slot = registry_.GetActive(name);
         ASSERT_NE(slot, nullptr);
-        slot->refCount.fetch_sub(1);  // 释放引用
+        registry_.Release(slot);
     }
 
     // 需要 150MB → 应驱逐最早的空闲模型

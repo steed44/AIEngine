@@ -21,6 +21,9 @@ struct ModelSlot {
 class ModelRegistry {
 public:
     std::shared_ptr<ModelSlot> GetActive(const std::string& name);
+    void Release(const std::shared_ptr<ModelSlot>& slot);
+    bool Contains(const std::string& name) const;
+    int GetVersion(const std::string& name) const;
     Status Replace(const std::string& name, std::unique_ptr<IModelBackend> newBackend,
                    size_t vramMB, int newVersion);
     Status EvictLRU(size_t neededMB);

@@ -36,10 +36,23 @@ __pycache__/
 .venv/
 venv/
 
+# CMake try_compile debris (random 5-char temp dirs)
+[a-zA-Z0-9][a-zA-Z0-9][a-zA-Z0-9][a-zA-Z0-9][a-zA-Z0-9]/
+
 # Test artifacts
 test_*.bin
 test_images/
 empty_test_dir/
+test_err.txt
+test_out.txt
 
 # Config override
 pipeline_config.json
+
+# Architecture / diagram artifacts
+arch_*.drawio
+arch_*.json
+arch_*.svg
+
+# graphify temp files
+.graphify_*

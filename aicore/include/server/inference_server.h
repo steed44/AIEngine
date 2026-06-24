@@ -36,7 +36,7 @@ public:
     Status LoadModel(const std::string& name, const std::string& modelPath,
                      const std::string& backend, size_t vramMB, int version = 1);
     Status ReplaceModel(const std::string& name, const std::string& modelPath,
-                        const std::string& backend, size_t vramMB, int version);
+                        const std::string& backend, size_t vramMB, int version = 0);
     bool IsLoaded(const std::string& name) const;
 
     Status InferAsync(InferenceRequest req);

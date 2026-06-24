@@ -9,6 +9,7 @@
 #include "patchcore/tiered_memory_bank.h"
 #include "patchcore/memory_manager.h"
 #include <cstdio>
+#include <filesystem>
 #include <fstream>
 
 using namespace aicore;
@@ -59,6 +60,15 @@ void CreateZerosBankFile(const std::string& path, int dim) {
               stride * sizeof(float));
 }
 
+std::string testPath(const char* name) {
+    return (std::filesystem::temp_directory_path() / name).string();
+}
+
+void removeIfPossible(const std::string& path) {
+    std::error_code ec;
+    std::filesystem::remove(path, ec);
+}
+
 } // anonymous namespace
 
 // ─── TieredMemoryBank ───────────────────────────────────────
@@ -71,10 +81,10 @@ TEST(TieredMemoryBankTest, DefaultState) {
 }
 
 TEST(TieredMemoryBankTest, MoveConstructor) {
-    CreateTestBankFile("test_move_src.bin", 3, 4);
+    CreateTestBankFile(testPath("test_move_src.bin"), 3, 4);
 
     TieredMemoryBank src;
-    ASSERT_TRUE(src.Load("test_move_src.bin"));
+    ASSERT_TRUE(src.Load(testPath("test_move_src.bin")));
 
     TieredMemoryBank dst(std::move(src));
     EXPECT_EQ(dst.Size(), 3);
@@ -85,14 +95,14 @@ TEST(TieredMemoryBankTest, MoveConstructor) {
 
     // 源对象再次 clear 不崩溃
     src.Clear();
-    std::remove("test_move_src.bin");
+    removeIfPossible(testPath("test_move_src.bin"));
 }
 
 TEST(TieredMemoryBankTest, MoveAssignment) {
-    CreateTestBankFile("test_move_assign.bin", 5, 2);
+    CreateTestBankFile(testPath("test_move_assign.bin"), 5, 2);
 
     TieredMemoryBank src;
-    ASSERT_TRUE(src.Load("test_move_assign.bin"));
+    ASSERT_TRUE(src.Load(testPath("test_move_assign.bin")));
 
     TieredMemoryBank dst;
     dst = std::move(src);
@@ -100,7 +110,7 @@ TEST(TieredMemoryBankTest, MoveAssignment) {
     EXPECT_EQ(dst.FeatureDim(), 2);
     EXPECT_EQ(src.Size(), 0);
 
-    std::remove("test_move_assign.bin");
+    removeIfPossible(testPath("test_move_assign.bin"));
 }
 
 TEST(TieredMemoryBankTest, ClearEmpty) {
@@ -110,41 +120,41 @@ TEST(TieredMemoryBankTest, ClearEmpty) {
 }
 
 TEST(TieredMemoryBankTest, DoubleClear) {
-    CreateTestBankFile("test_double_clear.bin", 2, 3);
+    CreateTestBankFile(testPath("test_double_clear.bin"), 2, 3);
 
     TieredMemoryBank bank;
-    ASSERT_TRUE(bank.Load("test_double_clear.bin"));
+    ASSERT_TRUE(bank.Load(testPath("test_double_clear.bin")));
     bank.Clear();
     bank.Clear();  // 第二次 clear 不得崩溃
     EXPECT_EQ(bank.Size(), 0);
 
-    std::remove("test_double_clear.bin");
+    removeIfPossible(testPath("test_double_clear.bin"));
 }
 
 TEST(TieredMemoryBankTest, LoadNonExistent) {
     TieredMemoryBank bank;
-    auto s = bank.Load("nonexistent_file_xyz.bin");
+    auto s = bank.Load(testPath("nonexistent_file_xyz.bin"));
     EXPECT_FALSE(s);
 }
 
 TEST(TieredMemoryBankTest, LoadInvalidMagic) {
     {
-        std::ofstream ofs("test_bad_magic.bin", std::ios::binary);
+        std::ofstream ofs(testPath("test_bad_magic.bin"), std::ios::binary);
         ASSERT_TRUE(ofs);
         uint32_t badMagic = 0xDEADBEEF;
         ofs.write(reinterpret_cast<const char*>(&badMagic), 4);
     }
 
     TieredMemoryBank bank;
-    auto s = bank.Load("test_bad_magic.bin");
+    auto s = bank.Load(testPath("test_bad_magic.bin"));
     EXPECT_FALSE(s);
 
-    std::remove("test_bad_magic.bin");
+    removeIfPossible(testPath("test_bad_magic.bin"));
 }
 
 TEST(TieredMemoryBankTest, LoadEmptyFile) {
     {
-        std::ofstream ofs("test_empty.bin", std::ios::binary);
+        std::ofstream ofs(testPath("test_empty.bin"), std::ios::binary);
         ASSERT_TRUE(ofs);
         // 只写入 magic，没有 num/dim
         uint32_t magic = TieredMemoryBank::kMagic;
@@ -154,39 +164,39 @@ TEST(TieredMemoryBankTest, LoadEmptyFile) {
     TieredMemoryBank bank;
     // 文件过短，mmap 内存中的 num/dim 读取 undefined — 但不会崩溃
     // 这个测试验证极端边界不崩溃
-    auto s = bank.Load("test_empty.bin");
+    auto s = bank.Load(testPath("test_empty.bin"));
     // 结果无所谓（未定义数据），关键是不得崩溃
     (void)s;
     bank.Clear();
-    std::remove("test_empty.bin");
+    removeIfPossible(testPath("test_empty.bin"));
 }
 
 TEST(TieredMemoryBankTest, LoadValidFile) {
-    CreateTestBankFile("test_valid.bin", 10, 4);
+    CreateTestBankFile(testPath("test_valid.bin"), 10, 4);
 
     TieredMemoryBank bank;
-    auto s = bank.Load("test_valid.bin");
+    auto s = bank.Load(testPath("test_valid.bin"));
     ASSERT_TRUE(s);
     EXPECT_EQ(bank.Size(), 10);
     EXPECT_EQ(bank.FeatureDim(), 4);
     EXPECT_EQ(bank.GetTier(), BankTier::kDisk);
 
     bank.Clear();
-    std::remove("test_valid.bin");
+    removeIfPossible(testPath("test_valid.bin"));
 }
 
 TEST(TieredMemoryBankTest, ComputeAnomalyMapEmptyQueries) {
-    CreateTestBankFile("test_empty_query.bin", 5, 3);
+    CreateTestBankFile(testPath("test_empty_query.bin"), 5, 3);
 
     TieredMemoryBank bank;
-    ASSERT_TRUE(bank.Load("test_empty_query.bin"));
+    ASSERT_TRUE(bank.Load(testPath("test_empty_query.bin")));
 
     std::vector<PatchFeature> emptyQueries;
     auto result = bank.ComputeAnomalyMap(emptyQueries, 100, 100);
     EXPECT_TRUE(result.empty());
 
     bank.Clear();
-    std::remove("test_empty_query.bin");
+    removeIfPossible(testPath("test_empty_query.bin"));
 }
 
 TEST(TieredMemoryBankTest, ComputeAnomalyMapEmptyBank) {
@@ -204,10 +214,10 @@ TEST(TieredMemoryBankTest, ComputeAnomalyMapEmptyBank) {
 }
 
 TEST(TieredMemoryBankTest, ComputeOnCPUCorrectShape) {
-    CreateTestBankFile("test_cpu_shape.bin", 10, 4);
+    CreateTestBankFile(testPath("test_cpu_shape.bin"), 10, 4);
 
     TieredMemoryBank bank;
-    ASSERT_TRUE(bank.Load("test_cpu_shape.bin"));
+    ASSERT_TRUE(bank.Load(testPath("test_cpu_shape.bin")));
 
     // 2 个查询 patch
     std::vector<PatchFeature> queries;
@@ -224,14 +234,14 @@ TEST(TieredMemoryBankTest, ComputeOnCPUCorrectShape) {
     EXPECT_EQ(result.size(), static_cast<size_t>(32 * 32));
 
     bank.Clear();
-    std::remove("test_cpu_shape.bin");
+    removeIfPossible(testPath("test_cpu_shape.bin"));
 }
 
 TEST(TieredMemoryBankTest, ComputeOnCPUExactMatch) {
-    CreateZerosBankFile("test_exact.bin", 2);
+    CreateZerosBankFile(testPath("test_exact.bin"), 2);
 
     TieredMemoryBank bank;
-    ASSERT_TRUE(bank.Load("test_exact.bin"));
+    ASSERT_TRUE(bank.Load(testPath("test_exact.bin")));
 
     PatchFeature pf;
     pf.features = {0.0f, 0.0f};
@@ -246,7 +256,7 @@ TEST(TieredMemoryBankTest, ComputeOnCPUExactMatch) {
     }
 
     bank.Clear();
-    std::remove("test_exact.bin");
+    removeIfPossible(testPath("test_exact.bin"));
 }
 
 TEST(TieredMemoryBankTest, PromoteToGPUNotLoaded) {
@@ -256,10 +266,10 @@ TEST(TieredMemoryBankTest, PromoteToGPUNotLoaded) {
 }
 
 TEST(TieredMemoryBankTest, DemoteToCPUFromDisk) {
-    CreateTestBankFile("test_demote_cpu.bin", 3, 2);
+    CreateTestBankFile(testPath("test_demote_cpu.bin"), 3, 2);
 
     TieredMemoryBank bank;
-    ASSERT_TRUE(bank.Load("test_demote_cpu.bin"));
+    ASSERT_TRUE(bank.Load(testPath("test_demote_cpu.bin")));
     EXPECT_EQ(bank.GetTier(), BankTier::kDisk);
 
     // disk tier 下调降级不应有影响
@@ -267,14 +277,14 @@ TEST(TieredMemoryBankTest, DemoteToCPUFromDisk) {
     EXPECT_EQ(bank.GetTier(), BankTier::kDisk);
 
     bank.Clear();
-    std::remove("test_demote_cpu.bin");
+    removeIfPossible(testPath("test_demote_cpu.bin"));
 }
 
 TEST(TieredMemoryBankTest, ClearAfterLoadResets) {
-    CreateTestBankFile("test_reset.bin", 7, 8);
+    CreateTestBankFile(testPath("test_reset.bin"), 7, 8);
 
     TieredMemoryBank bank;
-    ASSERT_TRUE(bank.Load("test_reset.bin"));
+    ASSERT_TRUE(bank.Load(testPath("test_reset.bin")));
     EXPECT_EQ(bank.Size(), 7);
 
     bank.Clear();
@@ -282,25 +292,25 @@ TEST(TieredMemoryBankTest, ClearAfterLoadResets) {
     EXPECT_EQ(bank.FeatureDim(), 0);
     EXPECT_EQ(bank.GetTier(), BankTier::kDisk);
 
-    std::remove("test_reset.bin");
+    removeIfPossible(testPath("test_reset.bin"));
 }
 
 TEST(TieredMemoryBankTest, LoadOverwritesPrevious) {
-    CreateTestBankFile("test_first.bin", 3, 2);
-    CreateTestBankFile("test_second.bin", 5, 4);
+    CreateTestBankFile(testPath("test_first.bin"), 3, 2);
+    CreateTestBankFile(testPath("test_second.bin"), 5, 4);
 
     TieredMemoryBank bank;
-    ASSERT_TRUE(bank.Load("test_first.bin"));
+    ASSERT_TRUE(bank.Load(testPath("test_first.bin")));
     EXPECT_EQ(bank.Size(), 3);
     EXPECT_EQ(bank.FeatureDim(), 2);
 
-    ASSERT_TRUE(bank.Load("test_second.bin"));
+    ASSERT_TRUE(bank.Load(testPath("test_second.bin")));
     EXPECT_EQ(bank.Size(), 5);
     EXPECT_EQ(bank.FeatureDim(), 4);
 
     bank.Clear();
-    std::remove("test_first.bin");
-    std::remove("test_second.bin");
+    removeIfPossible(testPath("test_first.bin"));
+    removeIfPossible(testPath("test_second.bin"));
 }
 
 // ─── MemoryManager ──────────────────────────────────────────

@@ -46,13 +46,17 @@ Status InferenceServer::LoadModel(const std::string& name, const std::string& mo
 
 Status InferenceServer::ReplaceModel(const std::string& name, const std::string& modelPath,
                                       const std::string& backend, size_t vramMB, int version) {
+    // version <= 0 时自动递增：从注册表取当前 version + 1，不存在则从 1 开始
+    if (version <= 0) {
+        version = registry_.Contains(name) ? registry_.GetVersion(name) + 1 : 1;
+    }
+    fprintf(stderr, "[InferenceServer] ReplaceModel: %s -> %s (v%d)\n",
+            name.c_str(), modelPath.c_str(), version);
     return LoadModel(name, modelPath, backend, vramMB, version);
 }
 
 bool InferenceServer::IsLoaded(const std::string& name) const {
-    // 简单的检查：registry_ 中有此条目即认为已加载
-    auto json = registry_.List();
-    return json.find("\"" + name + "\"") != std::string::npos;
+    return registry_.Contains(name);
 }
 
 Status InferenceServer::InferAsync(InferenceRequest req) {
@@ -141,7 +145,7 @@ void InferenceServer::ExecuteBatch(std::vector<InferenceRequest>& batch) {
     if (!slot || !slot->backend) {
         for (auto& req : batch) {
             req.callback(StatusCode::ErrorModelLoad, {}, "backend unavailable");
-            slot->refCount.fetch_sub(1);
+            registry_.Release(req.slot);
         }
         return;
     }
@@ -191,7 +195,7 @@ void InferenceServer::ExecuteBatch(std::vector<InferenceRequest>& batch) {
         if (ok) {
             req.callback(StatusCode::OK, results, "");
         }
-        slot->refCount.fetch_sub(1);
+        registry_.Release(req.slot);
     }
 }
 
@@ -214,7 +218,7 @@ void InferenceServer::Shutdown() {
         std::lock_guard lock(q->mutex);
         for (auto& req : q->pending) {
             req.callback(StatusCode::ErrorResourceExhaust, {}, "server shutdown");
-            if (req.slot) req.slot->refCount.fetch_sub(1);
+            if (req.slot) registry_.Release(req.slot);
         }
         q->pending.clear();
     }

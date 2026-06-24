@@ -55,10 +55,15 @@ int aicore_server_infer(const char* modelName,
     return 0;
 }
 
+static char* server_list_cache = nullptr;
+
 const char* aicore_server_list() {
-    static std::string cached;
-    cached = InferenceServer::Instance().ListModels();
-    return cached.c_str();
+    if (server_list_cache) {
+        free(server_list_cache);
+    }
+    auto json = InferenceServer::Instance().ListModels();
+    server_list_cache = strdup(json.c_str());
+    return server_list_cache;
 }
 
 void aicore_server_shutdown() {

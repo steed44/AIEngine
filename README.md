@@ -6,35 +6,31 @@
 
 ```
 AIEngine/
-├── aicore/                  # 主工程
+├── aicore/                  # 主工程（纯源码，不含编译产物）
 │   ├── include/             # 公共头文件
-│   │   ├── api/             #   C API（aicore_api.h）
-│   │   ├── core/            #   核心类型（Frame, Result, Tensor...）
-│   │   ├── config/          #   JSON 配置解析
-│   │   ├── pipeline/        #   流水线节点接口
-│   │   ├── preprocess/      #   预处理节点（resize, normalize）
-│   │   ├── postprocess/     #   后处理节点（NMS）
-│   │   ├── backend/         #   推理后端接口（TensorRT/ONNX/LibTorch）
-│   │   ├── engine/          #   线程池 + 引擎池
-│   │   ├── optimizer/       #   模型优化工具
-│   │   ├── trainer/         #   训练模块
-│   │   └── patchcore/       #   PatchCore 异常检测
-│   │       ├── backbone/    #     IBackbone 抽象（LibTorch/OpenCV/Model）
-│   │       ├── roi_def/     #     多 ROI 配置定义
-│   │       ├── roi_trainer/ #     多 ROI 训练器（流式/批量）
-│   │       └── multi_roi/   #     多 ROI 推理节点
 │   ├── src/                 # 实现文件
-│   ├── cli/                 # CLI 入口（5 个可执行文件）
+│   ├── cli/                 # CLI 入口
 │   ├── gui/                 # Qt 上位机
+│   ├── samples/             # 示例代码
 │   ├── scripts/             # Python 导出脚本
-│   └── tests/               # GTest 单元测试（71 个）
-├── docs/
-│   ├── knowledge-graph/     # 代码架构知识图谱（DOT/PNG/JSON-LD）
+│   ├── tests/               # GTest 单元测试
+│   └── CMakeLists.txt
+├── config/                  # 配置文件集中存放
+│   ├── config_optimize.json
+│   ├── config_rois.json
+│   └── config_train.json
+├── data/                    # 数据 / 权重 / 测试输出
+│   ├── yolo_weights/        # YOLO 模型权重
+│   └── test_output/         # 测试产物（*.bin）
+├── docs/                    # 文档 / 设计规格
+│   ├── 基于NVIDIA...技术方案.md
+│   ├── knowledge-graph/
 │   └── superpowers/
-│       ├── specs/           # 设计规格
-│       └── plans/           # 实现计划
-├── graphify-out/            # graphify 知识图谱（548 节点，27 社区）
-└── scripts/                 # Python 辅助脚本
+├── out/                     # 编译输出（独立于源码）
+│   └── build/
+├── graphify-out/            # 语义知识图谱
+├── scripts/                 # Python 辅助脚本
+└── .gitignore
 ```
 
 ## 编译目标
@@ -71,7 +67,7 @@ AIEngine/
 
 ```powershell
 cd aicore
-cmake -S . -B build -G "Visual Studio 17 2022" `
+cmake -S . -B ../out/build -G "Visual Studio 17 2022" `
   -DCMAKE_TOOLCHAIN_FILE="D:/work/vcpkg/vcpkg/scripts/buildsystems/vcpkg.cmake" `
   -DOpenCV_DIR="D:/work/vcpkg/vcpkg/installed/x64-windows/share/opencv4" `
   -DCMAKE_PREFIX_PATH="C:/Qt/Qt5.12.11/5.12.11/msvc2017_64"
@@ -82,19 +78,19 @@ cmake -S . -B build -G "Visual Studio 17 2022" `
 ### 2. 编译
 
 ```powershell
-cmake --build build --config Release
+cmake --build ../out/build --config Release
 ```
 
 Debug 模式：
 
 ```powershell
-cmake --build build --config Debug
+cmake --build ../out/build --config Debug
 ```
 
 ### 3. 运行测试
 
 ```powershell
-.\build\tests\Release\aicore_tests.exe
+..\out\build\tests\Release\aicore_tests.exe
 ```
 
 ## 使用方式
@@ -102,7 +98,7 @@ cmake --build build --config Debug
 ### AICoreUI（Qt 上位机）
 
 ```powershell
-.\build\Release\AICoreUI.exe
+..\out\build\Release\AICoreUI.exe
 ```
 
 - 菜单 `文件 → 打开图片` 选择待检测图像
@@ -112,7 +108,7 @@ cmake --build build --config Debug
 ### PatchCore 训练
 
 ```powershell
-.\build\Release\PatchCoreTrain.exe --data ./normal_images/ --model wideresnet.onnx --output memory_bank.bin
+..\out\build\Release\PatchCoreTrain.exe --data ./normal_images/ --model wideresnet.onnx --output memory_bank.bin
 ```
 
 可选参数：
@@ -130,7 +126,7 @@ cmake --build build --config Debug
 ### 多 ROI 训练
 
 ```powershell
-.\build\Release\RoiTrain.exe --config config_rois.json
+..\out\build\Release\RoiTrain.exe --config ..\config\config_rois.json
 ```
 
 ROI 配置文件示例：
@@ -167,7 +163,7 @@ ROI 配置文件示例：
 ### 多 ROI 推理
 
 ```powershell
-.\build\Release\RoiInfer.exe --config config_rois.json --image test.jpg
+..\out\build\Release\RoiInfer.exe --config ..\config\config_rois.json --image test.jpg
 ```
 
 ### YOLO 推理流水线
@@ -298,10 +294,10 @@ config.json → MultiRoiNode
 项目知识图谱使用 [graphify](https://opencode.ai) 自动构建：
 
 - `docs/knowledge-graph/`：静态代码架构图（DOT/PNG/JSON-LD）
-- `graphify-out/`：完整语义图谱（548 节点，27 个社区）
+- `graphify-out/`：完整语义图谱（684 节点，27 个社区）
   - `graph.html`：可交互 HTML 图谱
   - `graph.json`：JSON 格式图数据
-  - `GRAPH_REPORT.md`：分析报告（God Nodes、Surprising Connections）
+  - `GRAPH_REPORT.md`：分析报告（God Nodes、Surprising Connections、Suggested Questions）
 
 查询图谱（需 graphify 内置在 opencode 中）：
 
@@ -322,6 +318,7 @@ opencode /graphify 解释 MultiRoiNode 和 IBackbone 的关系
 | `docs/superpowers/specs/2026-06-10-aicore-inference-server-design.md` | 推理服务器设计 |
 | `docs/superpowers/plans/2026-06-10-aicore-phase2-optimizer.md` | Phase 2 实现计划 |
 | `docs/superpowers/plans/2026-06-10-aicore-phase3-trainer.md` | Phase 3 实现计划 |
+| `docs/基于NVIDIA GPU工控机的工业检测纯C++ AI引擎技术方案.md` | 整体技术方案 |
 
 ## 开发
 

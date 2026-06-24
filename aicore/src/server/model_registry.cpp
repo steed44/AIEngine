@@ -16,6 +16,23 @@ std::shared_ptr<ModelSlot> ModelRegistry::GetActive(const std::string& name) {
     return slot;
 }
 
+void ModelRegistry::Release(const std::shared_ptr<ModelSlot>& slot) {
+    if (slot) {
+        slot->refCount.fetch_sub(1);
+    }
+}
+
+bool ModelRegistry::Contains(const std::string& name) const {
+    std::shared_lock lock(rwLock_);
+    return slots_.find(name) != slots_.end();
+}
+
+int ModelRegistry::GetVersion(const std::string& name) const {
+    std::shared_lock lock(rwLock_);
+    auto it = slots_.find(name);
+    return it != slots_.end() ? it->second->version : 0;
+}
+
 Status ModelRegistry::Replace(const std::string& name,
                                std::unique_ptr<IModelBackend> newBackend,
                                size_t vramMB, int newVersion) {

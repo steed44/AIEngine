@@ -9,6 +9,9 @@ Scheduler& Scheduler::Instance() {
 }
 
 Scheduler::Scheduler() {
+    int count = -1;
+    cudaGetDeviceCount(&count);
+    deviceCount_.store(count < 0 ? 0 : count);
     ProbeBothFitOnGPU();
 }
 
@@ -20,18 +23,13 @@ void Scheduler::SetPriority(PriorityMode mode) {
 }
 
 bool Scheduler::InferenceUseGPU() const {
-    // 无 GPU 设备时所有模式返回 false
-    int devCount = 0;
-    cudaGetDeviceCount(&devCount);
-    if (devCount == 0) return false;
+    if (deviceCount_ == 0) return false;
     auto mode = priorityMode_.load();
     return mode != PriorityMode::kTraining;
 }
 
 bool Scheduler::TrainingUseGPU() const {
-    int devCount = 0;
-    cudaGetDeviceCount(&devCount);
-    if (devCount == 0) return false;
+    if (deviceCount_ == 0) return false;
     auto mode = priorityMode_.load();
     if (mode == PriorityMode::kTraining) return true;
     if (mode == PriorityMode::kInference) return false;

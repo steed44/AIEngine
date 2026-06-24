@@ -8,6 +8,16 @@
 cmake_minimum_required(VERSION 3.20)
 project(AICore VERSION 0.1.0 LANGUAGES CXX CUDA)
 
+# VS CUDA 12.8 .targets 需 CUDA_PATH_V12_8 环境变量定位工具包
+# 实际装 v11.8，Directory.Build.props 自动被 MSBuild 加载
+file(WRITE ${CMAKE_BINARY_DIR}/Directory.Build.props
+  "<Project>\n"
+  "  <PropertyGroup>\n"
+  "    <CUDA_PATH_V12_8>C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v11.8</CUDA_PATH_V12_8>\n"
+  "  </PropertyGroup>\n"
+  "</Project>\n"
+)
+
 set(CMAKE_CUDA_ARCHITECTURES "86")  # RTX 3060 (Ampere, sm_86)
 
 set(CMAKE_CXX_STANDARD 17)
@@ -32,7 +42,7 @@ endif()
 # ──────────────────────────────────────────────
 # nlohmann-json (单头文件)
 # ──────────────────────────────────────────────
-set(NLOHMANN_JSON_DIR ${CMAKE_SOURCE_DIR}/third_party)
+set(NLOHMANN_JSON_DIR ${PROJECT_SOURCE_DIR}/third_party)
 
 # ──────────────────────────────────────────────
 # 主推理引擎 DLL (aicore.dll)
@@ -84,7 +94,7 @@ endif()
 # 主推理引擎动态库
 add_library(aicore SHARED ${AICORE_SOURCES})
 target_include_directories(aicore
-    PUBLIC  ${CMAKE_SOURCE_DIR}/include
+    PUBLIC  ${PROJECT_SOURCE_DIR}/include
     PRIVATE ${NLOHMANN_JSON_DIR}
     PRIVATE ${OpenCV_INCLUDE_DIRS}
 )
@@ -110,7 +120,7 @@ set(AICORE_OPTIMIZER_SOURCES
 # 模型优化动态库
 add_library(aicore_optimizer SHARED ${AICORE_OPTIMIZER_SOURCES})
 target_include_directories(aicore_optimizer
-    PUBLIC  ${CMAKE_SOURCE_DIR}/include
+    PUBLIC  ${PROJECT_SOURCE_DIR}/include
     PRIVATE ${NLOHMANN_JSON_DIR}
     PRIVATE ${OpenCV_INCLUDE_DIRS}
     PRIVATE ${Python3_INCLUDE_DIRS}
@@ -139,10 +149,6 @@ set(AICORE_TRAINER_SOURCES
     src/trainer/data/augmentation.cpp
     src/trainer/model/model_factory.cpp
     src/trainer/model/python_trainer.cpp
-    src/trainer/model/yolo_model.cpp
-    src/trainer/model/yolo_loss.cpp
-    src/trainer/data/yolo_data.cpp
-    src/trainer/training/yolo_trainer.cpp
     src/trainer/training/training_loop.cpp
     src/trainer/training/training_scheduler.cpp
     src/trainer/training/checkpoint.cpp
@@ -152,10 +158,20 @@ set(AICORE_TRAINER_SOURCES
     src/trainer/trainer_api.cpp
 )
 
+# YOLO 训练源文件 - 需要 LibTorch
+if(Torch_FOUND)
+    list(APPEND AICORE_TRAINER_SOURCES
+        src/trainer/model/yolo_model.cpp
+        src/trainer/model/yolo_loss.cpp
+        src/trainer/data/yolo_data.cpp
+        src/trainer/training/yolo_trainer.cpp
+    )
+endif()
+
 # 训练模块动态库
 add_library(aicore_trainer SHARED ${AICORE_TRAINER_SOURCES})
 target_include_directories(aicore_trainer
-    PUBLIC  ${CMAKE_SOURCE_DIR}/include
+    PUBLIC  ${PROJECT_SOURCE_DIR}/include
     PRIVATE ${NLOHMANN_JSON_DIR}
     PRIVATE ${OpenCV_INCLUDE_DIRS}
 )
@@ -173,35 +189,35 @@ target_compile_definitions(aicore_trainer PRIVATE AICORE_TRAINER_EXPORTS)
 
 # 模型优化 CLI
 add_executable(ModelOptimizer cli/model_optimizer_main.cpp)
-target_include_directories(ModelOptimizer PRIVATE ${CMAKE_SOURCE_DIR}/include)
+target_include_directories(ModelOptimizer PRIVATE ${PROJECT_SOURCE_DIR}/include)
 target_include_directories(ModelOptimizer PRIVATE ${NLOHMANN_JSON_DIR})
 target_include_directories(ModelOptimizer PRIVATE ${OpenCV_INCLUDE_DIRS})
 target_link_libraries(ModelOptimizer PRIVATE aicore_optimizer ${OpenCV_LIBS})
 
 # 训练 CLI
 add_executable(AICoreTrainer cli/trainer_main.cpp)
-target_include_directories(AICoreTrainer PRIVATE ${CMAKE_SOURCE_DIR}/include)
+target_include_directories(AICoreTrainer PRIVATE ${PROJECT_SOURCE_DIR}/include)
 target_include_directories(AICoreTrainer PRIVATE ${NLOHMANN_JSON_DIR})
 target_include_directories(AICoreTrainer PRIVATE ${OpenCV_INCLUDE_DIRS})
 target_link_libraries(AICoreTrainer PRIVATE aicore_trainer ${OpenCV_LIBS})
 
 # PatchCore 训练 CLI (PatchCoreTrain.exe)
 add_executable(PatchCoreTrain cli/patchcore_train_main.cpp)
-target_include_directories(PatchCoreTrain PRIVATE ${CMAKE_SOURCE_DIR}/include)
+target_include_directories(PatchCoreTrain PRIVATE ${PROJECT_SOURCE_DIR}/include)
 target_include_directories(PatchCoreTrain PRIVATE ${NLOHMANN_JSON_DIR})
 target_include_directories(PatchCoreTrain PRIVATE ${OpenCV_INCLUDE_DIRS})
 target_link_libraries(PatchCoreTrain PRIVATE aicore ${OpenCV_LIBS})
 
 # 多 ROI 训练 CLI (RoiTrain.exe)
 add_executable(RoiTrain cli/roi_train_main.cpp)
-target_include_directories(RoiTrain PRIVATE ${CMAKE_SOURCE_DIR}/include)
+target_include_directories(RoiTrain PRIVATE ${PROJECT_SOURCE_DIR}/include)
 target_include_directories(RoiTrain PRIVATE ${NLOHMANN_JSON_DIR})
 target_include_directories(RoiTrain PRIVATE ${OpenCV_INCLUDE_DIRS})
 target_link_libraries(RoiTrain PRIVATE aicore ${OpenCV_LIBS})
 
 # 多 ROI 推理 CLI (RoiInfer.exe)
 add_executable(RoiInfer cli/roi_infer_main.cpp)
-target_include_directories(RoiInfer PRIVATE ${CMAKE_SOURCE_DIR}/include)
+target_include_directories(RoiInfer PRIVATE ${PROJECT_SOURCE_DIR}/include)
 target_include_directories(RoiInfer PRIVATE ${NLOHMANN_JSON_DIR})
 target_include_directories(RoiInfer PRIVATE ${OpenCV_INCLUDE_DIRS})
 target_link_libraries(RoiInfer PRIVATE aicore ${OpenCV_LIBS})
@@ -225,7 +241,7 @@ add_executable(AICoreUI
     gui/training_dialog.cpp
 )
 target_include_directories(AICoreUI
-    PRIVATE ${CMAKE_SOURCE_DIR}/include
+    PRIVATE ${PROJECT_SOURCE_DIR}/include
     PRIVATE ${NLOHMANN_JSON_DIR}
     PRIVATE ${OpenCV_INCLUDE_DIRS}
 )

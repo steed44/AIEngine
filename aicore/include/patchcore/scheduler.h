@@ -34,6 +34,7 @@ private:
     std::atomic<PriorityMode> priorityMode_{PriorityMode::kBalanced};
     std::atomic<bool> balancedResult_{false};
     std::atomic<int> inferMB_{2048}, trainMB_{6144}, headroomMB_{1024};
+    std::atomic<int> deviceCount_{-1};
 };
 
 } // namespace aicore

@@ -1,5 +1,7 @@
 // Torch headers FIRST (before Qt — macro conflict workaround)
+#ifdef AICORE_HAS_LIBTORCH
 #include "trainer/training/yolo_trainer.h"
+#endif
 #include <nlohmann/json.hpp>
 #include "patchcore/roi_trainer.h"
 #include "trainer/trainer_api.h"
@@ -347,6 +349,7 @@ void TrainingDialog::onStartPatchCore() {
 }
 
 void TrainingDialog::onStartYolo() {
+#ifdef AICORE_HAS_LIBTORCH
     if (yTrainImgDir_->text().isEmpty() || yTrainLabelDir_->text().isEmpty()) {
         QMessageBox::warning(this, "参数错误", "请选择训练图片和标签文件夹");
         return;
@@ -421,6 +424,9 @@ void TrainingDialog::onStartYolo() {
 
     progressTimer_->start(500);
     watcher_->setFuture(future);
+#else
+    QMessageBox::information(this, "不可用", "YOLO 训练需要 LibTorch，当前环境未安装");
+#endif
 }
 
 void TrainingDialog::onStopTraining() {
