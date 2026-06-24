@@ -10,6 +10,7 @@ cmake-build-*/
 *.pdb
 *.ilk
 *.sln
+!/AICore.sln
 *.suo
 *.vcxproj.user
 *.vcxproj.filters

@@ -19,12 +19,18 @@ namespace aicore {
 // -------------------------------------------------------
 class CoresetSampler {
 public:
-    // 执行核心集采样
-    // @param pool       原始特征池
-    // @param targetSize 目标采样数量
-    // @return 选中元素在 pool 中的索引列表
+    // 执行核心集采样 (FPS, O(n*k))
     std::vector<size_t> Sample(const std::vector<PatchFeature>& pool,
                                 size_t targetSize);
+
+    // 快速采样: 从 pool 中随机取 maxCandidates 个候选, 再 FPS
+    // 适合 pool 极大(n>50000)时使用, 大幅减少 O(nk) 开销
+    // @param pool          原始特征池
+    // @param targetSize    目标采样数量
+    // @param maxCandidates 随机候选上限 (默认 20000)
+    std::vector<size_t> FastSample(const std::vector<PatchFeature>& pool,
+                                    size_t targetSize,
+                                    size_t maxCandidates = 20000);
 };
 
 } // namespace aicore

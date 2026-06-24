@@ -9,6 +9,7 @@
 #include "patchcore/folder_dataset.h"
 #include "patchcore/scheduler.h"
 #include <random>
+#include <cmath>
 
 namespace aicore {
 
@@ -66,25 +67,27 @@ Status PatchCoreTrainer::Train(IDataset& dataset, const std::string& modelPath,
 
     // ---- 特征提取阶段 ----
     std::vector<PatchFeature> allFeatures;
+    size_t total = dataset.Size();
 
-    for (size_t i = 0; i < dataset.Size(); ) {
+    for (size_t i = 0; i < total; ) {
+        if (cfg.onProgress) {
+            cfg.onProgress(static_cast<int>(i), static_cast<int>(total), "extracting features");
+        }
+
         auto sample = dataset.Get(i);
         std::vector<PatchFeature> feats;
         if (isBackboneGpu) {
             try {
                 feats = backbone->Extract(sample.image);
             } catch (const std::runtime_error&) {
-                // GPU OOM: 重新探测显存，必要时降级到 CPU
                 Scheduler::Instance().RecheckGPU();
                 if (!Scheduler::Instance().TrainingUseGPU()) {
-                    // kBalanced/kInference 模式：降级 CPU 重试当前样本
                     backboneConfig["backbone"] = "opencv_dnn";
                     backbone = CreateBackbone("opencv_dnn", backboneConfig);
                     if (backbone) backbone->Init(backboneConfig);
                     isBackboneGpu = false;
                     continue;
                 }
-                // kTraining 模式下 GPU OOM → 硬错误
                 return Status{StatusCode::ErrorGpuDevice,
                     "OOM in kTraining mode, cannot continue"};
             }
@@ -99,17 +102,25 @@ Status PatchCoreTrainer::Train(IDataset& dataset, const std::string& modelPath,
         return Status{StatusCode::ErrorInternal, "patchcore: no features extracted"};
     }
 
+    size_t nFeats = allFeatures.size();
+
     // ---- 特征上限截断 ----
-    if (allFeatures.size() > cfg.maxFeatures) {
+    if (nFeats > cfg.maxFeatures) {
+        if (cfg.onProgress) {
+            cfg.onProgress(static_cast<int>(total), static_cast<int>(total), "random downsampling");
+        }
         std::shuffle(allFeatures.begin(), allFeatures.end(),
                      std::mt19937(std::random_device()()));
         allFeatures.resize(cfg.maxFeatures);
+        nFeats = cfg.maxFeatures;
     }
 
-    size_t targetSize = static_cast<size_t>(allFeatures.size() * cfg.coresetFraction);
+    size_t targetSize = static_cast<size_t>(nFeats * cfg.coresetFraction);
     if (targetSize == 0) targetSize = 1;
 
-    // ---- Coreset 核心集采样 ----
+    if (cfg.onProgress) {
+        cfg.onProgress(static_cast<int>(total), static_cast<int>(total), "coreset sampling");
+    }
     CoresetSampler sampler;
     auto indices = sampler.Sample(allFeatures, targetSize);
 
@@ -120,9 +131,42 @@ Status PatchCoreTrainer::Train(IDataset& dataset, const std::string& modelPath,
     }
     bank.Build(coreFeatures);
 
-    if (!bank.Save(outputPath)) {
-        lastError_ = "failed to save memory bank to " + outputPath;
-        return Status{StatusCode::ErrorInternal, lastError_};
+    if (cfg.computeNormParams && nFeats > 0) {
+        if (cfg.onProgress) {
+            cfg.onProgress(static_cast<int>(total), static_cast<int>(total), "computing norm params");
+        }
+        int dim = static_cast<int>(allFeatures[0].features.size());
+        bank.hasNormParams_ = true;
+        bank.normMean_.assign(dim, 0.0f);
+        bank.normStd_.assign(dim, 0.0f);
+        for (auto& pf : allFeatures) {
+            for (int d = 0; d < dim; d++) {
+                bank.normMean_[d] += pf.features[d];
+            }
+        }
+        float invN = 1.0f / nFeats;
+        for (int d = 0; d < dim; d++) {
+            bank.normMean_[d] *= invN;
+        }
+        for (auto& pf : allFeatures) {
+            for (int d = 0; d < dim; d++) {
+                float diff = pf.features[d] - bank.normMean_[d];
+                bank.normStd_[d] += diff * diff;
+            }
+        }
+        float invNm1 = 1.0f / (nFeats > 1 ? (nFeats - 1) : 1);
+        for (int d = 0; d < dim; d++) {
+            bank.normStd_[d] = std::sqrt(bank.normStd_[d] * invNm1 + 1e-8f);
+        }
+    }
+
+    if (cfg.onProgress) {
+        cfg.onProgress(static_cast<int>(total), static_cast<int>(total), "saving memory bank");
+    }
+    auto saveStatus = bank.Save(outputPath);
+    if (!saveStatus) {
+        lastError_ = saveStatus.message;
+        return saveStatus;
     }
 
     return Status{};

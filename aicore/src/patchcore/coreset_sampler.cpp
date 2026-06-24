@@ -10,6 +10,8 @@
 #include "patchcore/coreset_sampler.h"
 #include <limits>
 #include <cmath>
+#include <numeric>
+#include <random>
 
 namespace aicore {
 
@@ -119,6 +121,36 @@ std::vector<size_t> CoresetSampler::Sample(
                 if (d < minDist[i]) minDist[i] = d;
             }
         }
+    }
+    return result;
+}
+
+std::vector<size_t> CoresetSampler::FastSample(
+    const std::vector<PatchFeature>& pool, size_t targetSize,
+    size_t maxCandidates) {
+    if (pool.size() <= maxCandidates || targetSize >= pool.size()) {
+        return Sample(pool, targetSize);
+    }
+
+    // 随机选 maxCandidates 个候选
+    std::vector<size_t> indices(pool.size());
+    std::iota(indices.begin(), indices.end(), size_t(0));
+    std::shuffle(indices.begin(), indices.end(),
+                 std::mt19937(std::random_device()()));
+    indices.resize(maxCandidates);
+
+    std::vector<PatchFeature> subset;
+    subset.reserve(maxCandidates);
+    for (auto idx : indices) {
+        subset.push_back(pool[idx]);
+    }
+
+    auto subIndices = Sample(subset, std::min(targetSize, maxCandidates));
+
+    std::vector<size_t> result;
+    result.reserve(subIndices.size());
+    for (auto si : subIndices) {
+        result.push_back(indices[si]);
     }
     return result;
 }

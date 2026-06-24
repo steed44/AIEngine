@@ -69,6 +69,8 @@ target_sources(aicore_tests PRIVATE
     ${PROJECT_SOURCE_DIR}/src/patchcore/tiered_memory_bank.cpp
     ${PROJECT_SOURCE_DIR}/src/patchcore/memory_manager.cpp
     ${PROJECT_SOURCE_DIR}/src/patchcore/scheduler.cpp
+    ${PROJECT_SOURCE_DIR}/src/patchcore/anomaly_evaluator.cpp
+    ${PROJECT_SOURCE_DIR}/src/patchcore/patchcore_visualize.cpp
     # Multi-ROI: 多区域多模型支持
     ${PROJECT_SOURCE_DIR}/src/patchcore/roi_def.cpp
     ${PROJECT_SOURCE_DIR}/src/patchcore/roi_trainer.cpp

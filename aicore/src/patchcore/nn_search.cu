@@ -6,13 +6,15 @@ extern "C" {
 
 __global__ void BatchL2Kernel(const float* __restrict__ queries,
                                const float* __restrict__ bank,
-                               float* __restrict__ bestDists,
+                               float* __restrict__ outBestDists,
+                               int* __restrict__ outBestIdxs,
                                int M, int N, int D) {
     int qIdx = blockIdx.x;
     if (qIdx >= M) return;
 
     const float* q = queries + qIdx * D;
-    float best = FLT_MAX;
+    float bestDist = FLT_MAX;
+    int bestIdx = 0;
 
     for (int bIdx = threadIdx.x; bIdx < N; bIdx += blockDim.x) {
         const float* b = bank + bIdx * D;
@@ -21,32 +23,45 @@ __global__ void BatchL2Kernel(const float* __restrict__ queries,
             float diff = q[d] - b[d];
             dist += diff * diff;
         }
-        if (dist < best) best = dist;
+        if (dist < bestDist) {
+            bestDist = dist;
+            bestIdx = bIdx;
+        }
     }
 
     extern __shared__ float shared[];
-    shared[threadIdx.x] = best;
+    int* sharedIdx = reinterpret_cast<int*>(shared + blockDim.x);
+
+    shared[threadIdx.x] = bestDist;
+    sharedIdx[threadIdx.x] = bestIdx;
     __syncthreads();
 
     for (int s = blockDim.x / 2; s > 0; s >>= 1) {
         if (threadIdx.x < s) {
-            float other = shared[threadIdx.x + s];
-            shared[threadIdx.x] = fminf(shared[threadIdx.x], other);
+            float d1 = shared[threadIdx.x];
+            float d2 = shared[threadIdx.x + s];
+            if (d2 < d1) {
+                shared[threadIdx.x] = d2;
+                sharedIdx[threadIdx.x] = sharedIdx[threadIdx.x + s];
+            }
         }
         __syncthreads();
     }
 
     if (threadIdx.x == 0) {
-        bestDists[qIdx] = sqrtf(shared[0]);
+        outBestDists[qIdx] = sqrtf(shared[0]);
+        if (outBestIdxs) {
+            outBestIdxs[qIdx] = sharedIdx[0];
+        }
     }
 }
 
 void BatchL2DistanceGPU(const float* queries, int M, int D,
                          const float* bank, int N,
-                         float* outBestDists) {
+                         float* outBestDists, int* outBestIdxs) {
     constexpr int kBlockSize = 256;
-    int sharedBytes = kBlockSize * sizeof(float);
-    BatchL2Kernel<<<M, kBlockSize, sharedBytes>>>(queries, bank, outBestDists, M, N, D);
+    int sharedBytes = kBlockSize * (sizeof(float) + sizeof(int));
+    BatchL2Kernel<<<M, kBlockSize, sharedBytes>>>(queries, bank, outBestDists, outBestIdxs, M, N, D);
 }
 
 } // extern "C"

@@ -8,8 +8,11 @@
 #include "patchcore/memory_bank.h"
 #include "trainer/data/dataset.h"
 #include <string>
+#include <functional>
 
 namespace aicore {
+
+using ProgressCallback = std::function<void(int current, int total, const std::string& status)>;
 
 // -------------------------------------------------------
 // PatchCoreTrainConfig — 训练配置参数
@@ -21,6 +24,8 @@ struct AICORE_API PatchCoreTrainConfig {
     std::string backendType = "onnxruntime";  // model_backend 时指定具体后端：onnxruntime / tensorrt / libtorch
     double coresetFraction = 0.1;             // Coreset 采样比例（默认保留 10%）
     size_t maxFeatures = 100000;              // 最大特征数上限（超出时随机降采样）
+    bool computeNormParams = true;            // 是否计算并保存特征归一化参数
+    ProgressCallback onProgress = nullptr;    // 可选: 训练进度回调
 };
 
 // -------------------------------------------------------

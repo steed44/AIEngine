@@ -78,6 +78,8 @@ set(AICORE_SOURCES
     src/patchcore/multi_roi_node.cpp
     src/patchcore/memory_manager.cpp
     src/patchcore/tiered_memory_bank.cpp
+    src/patchcore/patchcore_visualize.cpp
+    src/patchcore/anomaly_evaluator.cpp
     src/patchcore/nn_search.cu
     src/patchcore/scheduler.cpp
     src/api/scheduler_api.cpp
@@ -207,6 +209,13 @@ target_include_directories(PatchCoreTrain PRIVATE ${PROJECT_SOURCE_DIR}/include)
 target_include_directories(PatchCoreTrain PRIVATE ${NLOHMANN_JSON_DIR})
 target_include_directories(PatchCoreTrain PRIVATE ${OpenCV_INCLUDE_DIRS})
 target_link_libraries(PatchCoreTrain PRIVATE aicore ${OpenCV_LIBS})
+
+# PatchCore 推理 CLI (PatchCoreInfer.exe)
+add_executable(PatchCoreInfer cli/patchcore_infer_main.cpp)
+target_include_directories(PatchCoreInfer PRIVATE ${PROJECT_SOURCE_DIR}/include)
+target_include_directories(PatchCoreInfer PRIVATE ${NLOHMANN_JSON_DIR})
+target_include_directories(PatchCoreInfer PRIVATE ${OpenCV_INCLUDE_DIRS})
+target_link_libraries(PatchCoreInfer PRIVATE aicore ${OpenCV_LIBS})
 
 # 多 ROI 训练 CLI (RoiTrain.exe)
 add_executable(RoiTrain cli/roi_train_main.cpp)

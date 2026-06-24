@@ -48,6 +48,14 @@ void Scheduler::SetGPUReservation(int inferMB, int trainMB, int headroomMB) {
     headroomMB_.store(headroomMB);
 }
 
+int Scheduler::SelectDevice() {
+    int count = deviceCount_.load();
+    if (count <= 0) return 0;
+    int dev = nextDevice_.fetch_add(1) % count;
+    cudaSetDevice(dev);
+    return dev;
+}
+
 void Scheduler::ProbeBothFitOnGPU() {
     size_t freeBytes = 0, totalBytes = 0;
     cudaError_t err = cudaMemGetInfo(&freeBytes, &totalBytes);

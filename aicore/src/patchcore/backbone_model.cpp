@@ -57,17 +57,23 @@ std::vector<PatchFeature> ModelBackendBackbone::Extract(const cv::Mat& image) {
     cv::Mat floatImg;
     resized.convertTo(floatImg, CV_32F, 1.0 / 255);
 
-    // ---- HWC → CHW 数据重排 ----
+    // ---- HWC → CHW 数据重排 + ImageNet 标准化 ----
     Tensor input;
     input.dtype = DataType::kFloat32;
     input.shape = {1, 3, inputSize_, inputSize_};
     input.bytes = 1 * 3 * inputSize_ * inputSize_ * sizeof(float);
     std::vector<float> chw(input.bytes / sizeof(float));
     float* src = floatImg.ptr<float>();
-    for (int c = 0; c < 3; c++)
-        for (int h = 0; h < inputSize_; h++)
-            for (int w = 0; w < inputSize_; w++)
-                chw[c * inputSize_ * inputSize_ + h * inputSize_ + w] = src[h * inputSize_ * 3 + w * 3 + c];
+    float mean[3] = {0.485f, 0.456f, 0.406f};
+    float std[3]  = {0.229f, 0.224f, 0.225f};
+    for (int c = 0; c < 3; c++) {
+        for (int h = 0; h < inputSize_; h++) {
+            for (int w = 0; w < inputSize_; w++) {
+                float val = src[h * inputSize_ * 3 + w * 3 + c];
+                chw[c * inputSize_ * inputSize_ + h * inputSize_ + w] = (val - mean[c]) / std[c];
+            }
+        }
+    }
     input.data = chw.data();
 
     // ---- 后端推理 ----

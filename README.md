@@ -35,18 +35,33 @@ AIEngine/
 
 ## 编译目标
 
-| 目标 | 说明 |
-|------|------|
-| `aicore.dll` | 推理核心 DLL（7 个 C API 导出） |
-| `aicore_optimizer.dll` | 模型优化工具 DLL |
-| `aicore_trainer.dll` | 训练模块 DLL |
-| `AICoreUI.exe` | Qt 5 上位机（打开图片 → 推理 → 显示检测框） |
-| `ModelOptimizer.exe` | 模型优化 CLI |
-| `AICoreTrainer.exe` | 训练 CLI |
-| `PatchCoreTrain.exe` | PatchCore 训练 CLI（文件夹 → memory bank） |
-| `RoiTrain.exe` | 多 ROI 训练 CLI |
-| `RoiInfer.exe` | 多 ROI 推理 CLI |
-| `aicore_tests.exe` | GTest 单元测试（71 个） |
+### 核心模块（DLL）
+
+| Project | 产物 | 说明 |
+|---------|------|------|
+| **aicore** | `aicore.dll` | 推理核心。Pipeline 编排器、PatchCore 推理、YOLO 检测、多 ROI、MemoryBank、GPU 调度器、推理服务器、C API 导出。所有能力的底座 |
+| **aicore_optimizer** | `aicore_optimizer.dll` | 模型优化工具。PyTorch→ONNX→TensorRT 导出流程、INT8 Calibrator，依赖 Python 嵌入 |
+| **aicore_trainer** | `aicore_trainer.dll` | 训练模块。YOLO 训练（损失函数、数据增强、DataLoader、Checkpoint），依赖 LibTorch |
+
+### CLI 可执行文件
+
+| Project | 产物 | 说明 |
+|---------|------|------|
+| **AICoreUI** | `AICoreUI.exe` | Qt5 上位机。打开图片→选择流水线→显示检测框/异常热力图 |
+| **ModelOptimizer** | `ModelOptimizer.exe` | 模型优化 CLI。调用 Python 嵌入完成 ONNX/TensorRT 导出 |
+| **AICoreTrainer** | `AICoreTrainer.exe` | YOLO 训练 CLI。启动训练流水线，支持早停、Checkpoint 恢复 |
+| **PatchCoreTrain** | `PatchCoreTrain.exe` | PatchCore 训练 CLI。从正常样本图片提取特征→Coreset 降采样→输出 MemoryBank |
+| **RoiTrain** | `RoiTrain.exe` | 多 ROI 训练 CLI。大图多个区域独立训练 MemoryBank，共享 backbone |
+| **RoiInfer** | `RoiInfer.exe` | 多 ROI 推理 CLI。对图片执行多区域异常检测，输出每区域得分 |
+| **aicore_tests** | `aicore_tests.exe` | GTest 单元测试。~200 个测试覆盖所有模块（无需外部依赖即可运行） |
+
+### CMake 辅助 target
+
+| Project | 说明 |
+|---------|------|
+| ALL_BUILD | VS 自动生成，一键构建全部 |
+| ZERO_CHECK | 检测 CMakeLists.txt 变更，自动重新生成解决方案 |
+| copy_sln | 构建后将 `.sln` 同步到项目根目录（双击即开） |
 
 ## 环境要求
 
@@ -63,34 +78,50 @@ AIEngine/
 
 ## 快速开始
 
-### 1. 配置 CMake
+### 前置条件
+
+设置环境变量（路径按实际安装位置调整）：
 
 ```powershell
-cd aicore
-cmake -S . -B ../out/build -G "Visual Studio 17 2022" `
-  -DCMAKE_TOOLCHAIN_FILE="D:/work/vcpkg/vcpkg/scripts/buildsystems/vcpkg.cmake" `
-  -DOpenCV_DIR="D:/work/vcpkg/vcpkg/installed/x64-windows/share/opencv4" `
-  -DCMAKE_PREFIX_PATH="C:/Qt/Qt5.12.11/5.12.11/msvc2017_64"
+$env:VCPKG_ROOT = "D:/work/vcpkg/vcpkg"
+$env:QT5_DIR    = "C:/Qt/Qt5.12.11/5.12.11/msvc2017_64"
+$env:LIBTORCH_DIR = "D:/libtorch/libtorch"
 ```
 
-> **注意**：根据你的实际环境调整 vcpkg 路径和 Qt 路径。
+### 方式 1：VS2022 Open Folder（推荐）
 
-### 2. 编译
+用 VS2022 打开项目根目录，自动识别 `CMakePresets.json`：
+
+1. **文件 → 打开 → 文件夹** → 选 `D:\w\AIEngine`
+2. 顶部下拉菜单选择 **VS 2022 (x64) - Debug** 或 **Release**
+3. 按 **F7** 构建
+4. 测试工程设为启动项 → **Ctrl+F5** 运行测试
+
+### 方式 2：命令行 + CMakePresets
 
 ```powershell
-cmake --build ../out/build --config Release
+# 配置（仅首次）
+cmake --preset default
+
+# 构建
+cmake --build --preset debug     # Debug
+cmake --build --preset release   # Release
+
+# 测试
+ctest --preset debug
 ```
 
-Debug 模式：
+### 方式 3：命令行完整命令
 
 ```powershell
-cmake --build ../out/build --config Debug
-```
+cmake -S . -B out/build -G "Visual Studio 17 2022" `
+  -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" `
+  -DOpenCV_DIR="$env:VCPKG_ROOT/installed/x64-windows/share/opencv4" `
+  -DCMAKE_PREFIX_PATH="$env:QT5_DIR" `
+  -DTorch_DIR="$env:LIBTORCH_DIR/share/cmake/Torch"
 
-### 3. 运行测试
-
-```powershell
-..\out\build\tests\Release\aicore_tests.exe
+cmake --build out/build --config Release
+out\build\aicore\tests\Release\aicore_tests.exe
 ```
 
 ## 使用方式

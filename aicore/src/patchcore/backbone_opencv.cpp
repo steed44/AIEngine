@@ -5,21 +5,8 @@
 // ============================================================
 #include "patchcore/backbone_opencv.h"
 #include <opencv2/dnn.hpp>
-#include <opencv2/imgproc.hpp>
-#include <sstream>
 
 namespace aicore {
-
-// 将逗号分隔的层名字符串解析为字符串向量
-static std::vector<std::string> SplitLayerNames(const std::string& s) {
-    std::vector<std::string> result;
-    std::stringstream ss(s);
-    std::string item;
-    while (std::getline(ss, item, ',')) {
-        if (!item.empty()) result.push_back(item);
-    }
-    return result;
-}
 
 // -------------------------------------------------------
 // 初始化：从 ONNX 文件读取网络，配置输出层和输入尺寸
@@ -51,10 +38,24 @@ Status OpenCVDnnBackbone::Init(const NodeConfig& config) {
 // 前向推理获取指定中间层输出，遍历每个空间位置生成 PatchFeature
 // -------------------------------------------------------
 std::vector<PatchFeature> OpenCVDnnBackbone::Extract(const cv::Mat& image) {
-    // blobFromImage 一次性完成：resize → 1/255 缩放 → BGR→RGB → 减均值
+    // blobFromImage 完成：resize → 1/255 → BGR→RGB → 减均值
     cv::Mat blob = cv::dnn::blobFromImage(image, 1.0 / 255,
         cv::Size(inputSize_, inputSize_),
         cv::Scalar(0.485, 0.456, 0.406), true, false);
+
+    // ImageNet std 除法: 每通道除以对应 std 值
+    // blob 布局 NCHW, N=1, C=3
+    float* data = blob.ptr<float>();
+    float stdVals[3] = {0.229f, 0.224f, 0.225f};
+    int channels = blob.size[1];
+    int hw = blob.size[2] * blob.size[3];
+    for (int c = 0; c < channels; c++) {
+        float* channelData = data + c * hw;
+        float s = stdVals[c];
+        for (int i = 0; i < hw; i++) {
+            channelData[i] /= s;
+        }
+    }
 
     net_.setInput(blob);
     std::vector<cv::Mat> outputs;

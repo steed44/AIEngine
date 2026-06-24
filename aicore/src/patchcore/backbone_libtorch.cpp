@@ -7,21 +7,13 @@
 // ============================================================
 #include "patchcore/backbone_libtorch.h"
 #include <opencv2/imgproc.hpp>
-#include <sstream>
+
+#ifdef AICORE_HAS_LIBTORCH
+#include <torch/script.h>
+#include <torch/torch.h>
+#endif
 
 namespace aicore {
-
-// 将逗号分隔的层名字符串解析为字符串向量
-// 例如 "layer2,layer3" → ["layer2", "layer3"]
-static std::vector<std::string> SplitLayerNames(const std::string& s) {
-    std::vector<std::string> result;
-    std::stringstream ss(s);
-    std::string item;
-    while (std::getline(ss, item, ',')) {
-        if (!item.empty()) result.push_back(item);
-    }
-    return result;
-}
 
 // -------------------------------------------------------
 // 初始化 LibTorch backbone：加载 TorchScript 模型并设 eval 模式

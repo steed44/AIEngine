@@ -5,7 +5,7 @@
 // ============================================================
 #pragma once
 #include "core/processor.h"
-#include "patchcore/memory_bank.h"
+#include "patchcore/tiered_memory_bank.h"
 #include "patchcore/backbone.h"
 #include <string>
 #include <vector>
@@ -33,13 +33,14 @@ public:
     std::string GetType() const override { return "patchcore"; }
 
 private:
-    std::string name_;                              // 节点名称
-    std::unique_ptr<IBackbone> backbone_;            // 当前特征提取 backbone
-    std::unique_ptr<IBackbone> gpuBackbone_;         // GPU 后端 backbone（LibTorch，可选）
-    std::unique_ptr<IBackbone> cpuBackbone_;         // CPU 后端 backbone（OpenCV DNN）
-    MemoryBank memoryBank_;                          // 正常样本特征记忆库
-    int inputSize_ = 224;                            // 输入图像缩放尺寸
-    float anomalyThreshold_ = 0.5f;                  // 异常判定阈值
+    std::string name_;
+    std::unique_ptr<IBackbone> backbone_;
+    std::unique_ptr<IBackbone> gpuBackbone_;
+    std::unique_ptr<IBackbone> cpuBackbone_;
+    TieredMemoryBank memoryBank_;
+    int inputSize_ = 224;
+    float anomalyThreshold_ = 0.5f;
+    int maxTileSize_ = 1024;                         // 大图分片尺寸 (<=0 禁用分片)
 };
 
 } // namespace aicore

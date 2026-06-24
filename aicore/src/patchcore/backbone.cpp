@@ -9,6 +9,7 @@
 #ifdef AICORE_HAS_LIBTORCH
 #include "patchcore/backbone_libtorch.h"
 #endif
+#include <sstream>
 
 namespace aicore {
 
@@ -34,6 +35,18 @@ std::unique_ptr<IBackbone> CreateBackbone(const std::string& type, const NodeCon
     }
 #endif
     return nullptr;
+}
+
+std::vector<std::string> SplitLayerNames(const std::string& s) {
+    std::vector<std::string> names;
+    std::stringstream ss(s);
+    std::string item;
+    while (std::getline(ss, item, ',')) {
+        if (!item.empty()) {
+            names.push_back(item);
+        }
+    }
+    return names;
 }
 
 } // namespace aicore

@@ -35,13 +35,16 @@ public:
     MemoryBank() = default;
 
     // 从二进制文件加载记忆库（含魔数校验）
+    // 支持新旧两种格式:
+    //   新格式: magic(4B) + version(4B) + num(4B) + dim(4B) + features
+    //   旧格式: magic(4B) + num(4B) + dim(4B) + features
     // @param path .bin 文件路径
-    // @return 加载成功返回 true
-    bool Load(const std::string& path);
-    // 将记忆库序列化保存到二进制文件
+    // @return 加载成功返回 Status
+    Status Load(const std::string& path);
+    // 将记忆库序列化保存到二进制文件（新格式, version=1）
     // @param path 输出文件路径
-    // @return 保存成功返回 true
-    bool Save(const std::string& path) const;
+    // @return 保存成功返回 Status
+    Status Save(const std::string& path) const;
 
     // 构建记忆库：从特征列表构建，记录特征维度
     void Build(const std::vector<PatchFeature>& features);
@@ -64,11 +67,19 @@ public:
     size_t Size() const { return bank_.size(); }
     int FeatureDim() const { return featureDim_; }
 
-    static constexpr uint32_t kMagic = 0x50434F52;  // 文件格式魔数 "PCOR"
+    static constexpr uint32_t kMagic = 0x50434F52;  // 旧格式魔数 "PCOR"
+    static constexpr uint32_t kMagicNew = 0x50434F56; // 新格式魔数 "PCORv"
+    static constexpr uint32_t kCurrentVersion = 1;    // 当前版本号
+
+    // 归一化参数: 训练时特征各维度的 mean/std
+    // 推理时用相同参数归一化查询特征后再做 NN 搜索
+    bool hasNormParams_ = false;
+    std::vector<float> normMean_;
+    std::vector<float> normStd_;
 
 private:
-    std::vector<PatchFeature> bank_;  // 存储的核心特征库
-    int featureDim_ = 0;              // 特征向量维度（由 Build 时首个元素决定）
+    std::vector<PatchFeature> bank_;
+    int featureDim_ = 0;
 };
 
 } // namespace aicore

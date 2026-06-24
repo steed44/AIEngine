@@ -40,4 +40,8 @@ public:
 // @return 创建的 IBackbone 实例，若类型未知则返回 nullptr
 std::unique_ptr<IBackbone> CreateBackbone(const std::string& type, const NodeConfig& config);
 
+// 工具函数: 将逗号分隔的层名字符串解析为 vector
+// 如 "layer2,layer3" → {"layer2", "layer3"}
+std::vector<std::string> SplitLayerNames(const std::string& s);
+
 } // namespace aicore

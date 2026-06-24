@@ -167,9 +167,10 @@ Status RoiTrainer::TrainAllStreaming(const std::string& configPath,
         bank.Build(coreFeatures);
 
         std::string modelPath = cfg.modelDir + "/" + roi.id + ".bin";
-        if (!bank.Save(modelPath)) {
-            lastError_ = "failed to save " + modelPath;
-            return Status{StatusCode::ErrorInternal, lastError_};
+        auto saveStatus = bank.Save(modelPath);
+        if (!saveStatus) {
+            lastError_ = saveStatus.message;
+            return saveStatus;
         }
 
         std::cout << "  -> Saved to " << modelPath

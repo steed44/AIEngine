@@ -26,6 +26,11 @@ public:
 
     void RecheckGPU();              // kBalanced 模式下重新探测显存
     void SetGPUReservation(int inferMB, int trainMB, int headroomMB);
+    // 选择最佳 GPU 设备并设置当前上下文 (简单 round-robin)
+    // @return 选中的设备 ID
+    int SelectDevice();
+    // 获取可用 GPU 数量
+    int DeviceCount() const { return deviceCount_.load(); }
 
 private:
     Scheduler();
@@ -35,6 +40,7 @@ private:
     std::atomic<bool> balancedResult_{false};
     std::atomic<int> inferMB_{2048}, trainMB_{6144}, headroomMB_{1024};
     std::atomic<int> deviceCount_{-1};
+    std::atomic<int> nextDevice_{0};
 };
 
 } // namespace aicore

@@ -31,43 +31,80 @@ void MemoryBank::Clear() {
     featureDim_ = 0;
 }
 
-// -------------------------------------------------------
-// 序列化保存到二进制文件
-// 文件布局（小端序）：
-//   [Magic: uint32_t = 0x50434F52] "PCOR"
-//   [Num:   uint32_t] 特征数量
-//   [Dim:   uint32_t] 特征维度
-//   [Feature 0: Dim个float + layerIdx(int) + row(int) + col(int)]
-//   [Feature 1: ...]
-// -------------------------------------------------------
-bool MemoryBank::Save(const std::string& path) const {
+Status MemoryBank::Save(const std::string& path) const {
     std::ofstream f(path, std::ios::binary);
-    if (!f) return false;
+    if (!f) {
+        return Status{StatusCode::ErrorInternal, "cannot open for write: " + path};
+    }
     uint32_t num = static_cast<uint32_t>(bank_.size());
     uint32_t dim = static_cast<uint32_t>(featureDim_);
-    f.write(reinterpret_cast<const char*>(&kMagic), sizeof(kMagic));
+    uint32_t ver = kCurrentVersion;
+
+    f.write(reinterpret_cast<const char*>(&kMagicNew), sizeof(kMagicNew));
+    f.write(reinterpret_cast<const char*>(&ver), sizeof(ver));
     f.write(reinterpret_cast<const char*>(&num), sizeof(num));
     f.write(reinterpret_cast<const char*>(&dim), sizeof(dim));
+
+    // 写归一化参数
+    uint8_t hasNorm = hasNormParams_ ? 1 : 0;
+    f.write(reinterpret_cast<const char*>(&hasNorm), sizeof(hasNorm));
+    if (hasNormParams_) {
+        f.write(reinterpret_cast<const char*>(normMean_.data()), dim * sizeof(float));
+        f.write(reinterpret_cast<const char*>(normStd_.data()), dim * sizeof(float));
+    }
+
     for (auto& pf : bank_) {
         f.write(reinterpret_cast<const char*>(pf.features.data()), dim * sizeof(float));
         f.write(reinterpret_cast<const char*>(&pf.layerIdx), sizeof(pf.layerIdx));
         f.write(reinterpret_cast<const char*>(&pf.patchRow), sizeof(pf.patchRow));
         f.write(reinterpret_cast<const char*>(&pf.patchCol), sizeof(pf.patchCol));
     }
-    return f.good();
+    if (!f.good()) {
+        return Status{StatusCode::ErrorInternal, "write failed: " + path};
+    }
+    return Status{};
 }
 
-// -------------------------------------------------------
-// 从二进制文件加载记忆库（含魔数校验）
-// -------------------------------------------------------
-bool MemoryBank::Load(const std::string& path) {
+Status MemoryBank::Load(const std::string& path) {
     std::ifstream f(path, std::ios::binary);
-    if (!f) return false;
-    uint32_t magic = 0, num = 0, dim = 0;
+    if (!f) {
+        return Status{StatusCode::ErrorModelLoad, "cannot open file: " + path};
+    }
+
+    uint32_t magic = 0, num = 0, dim = 0, version = 0;
     f.read(reinterpret_cast<char*>(&magic), sizeof(magic));
-    if (magic != kMagic) return false;  // 魔数不匹配，非合法记忆库文件
-    f.read(reinterpret_cast<char*>(&num), sizeof(num));
-    f.read(reinterpret_cast<char*>(&dim), sizeof(dim));
+
+    if (magic == kMagicNew) {
+        // 新格式: magic + version + num + dim + hasNorm + [mean/std] + features
+        f.read(reinterpret_cast<char*>(&version), sizeof(version));
+        if (version != kCurrentVersion) {
+            return Status{StatusCode::ErrorModelLoad,
+                "unsupported memory bank version: " + std::to_string(version)};
+        }
+        f.read(reinterpret_cast<char*>(&num), sizeof(num));
+        f.read(reinterpret_cast<char*>(&dim), sizeof(dim));
+
+        uint8_t hasNorm = 0;
+        f.read(reinterpret_cast<char*>(&hasNorm), sizeof(hasNorm));
+        hasNormParams_ = (hasNorm != 0);
+        if (hasNormParams_) {
+            normMean_.resize(dim);
+            normStd_.resize(dim);
+            f.read(reinterpret_cast<char*>(normMean_.data()), dim * sizeof(float));
+            f.read(reinterpret_cast<char*>(normStd_.data()), dim * sizeof(float));
+        }
+    } else if (magic == kMagic) {
+        // 旧格式: magic + num + dim + features (无 version, 无归一化参数)
+        f.read(reinterpret_cast<char*>(&num), sizeof(num));
+        f.read(reinterpret_cast<char*>(&dim), sizeof(dim));
+        hasNormParams_ = false;
+        normMean_.clear();
+        normStd_.clear();
+    } else {
+        return Status{StatusCode::ErrorModelLoad,
+            "invalid magic in memory bank: " + path};
+    }
+
     bank_.resize(num);
     featureDim_ = static_cast<int>(dim);
     for (uint32_t i = 0; i < num; i++) {
@@ -77,7 +114,10 @@ bool MemoryBank::Load(const std::string& path) {
         f.read(reinterpret_cast<char*>(&bank_[i].patchRow), sizeof(bank_[i].patchRow));
         f.read(reinterpret_cast<char*>(&bank_[i].patchCol), sizeof(bank_[i].patchCol));
     }
-    return f.good();
+    if (!f.good()) {
+        return Status{StatusCode::ErrorModelLoad, "read failed (truncated?): " + path};
+    }
+    return Status{};
 }
 
 // -------------------------------------------------------
@@ -144,29 +184,72 @@ size_t MemoryBank::NearestNeighbor(const std::vector<float>& query, float& distO
 // -------------------------------------------------------
 std::vector<float> MemoryBank::ComputeAnomalyMap(
     const std::vector<PatchFeature>& queries, int imgH, int imgW) const {
-    // 确定特征图的空间尺寸（取所有位置中的最大行列 + 1）
-    int maxRow = 0, maxCol = 0;
-    for (auto& q : queries) {
-        maxRow = std::max(maxRow, q.patchRow + 1);
-        maxCol = std::max(maxCol, q.patchCol + 1);
-    }
-    if (maxRow == 0 || maxCol == 0) return {};
+    if (queries.empty()) return {};
 
-    // 构建低分辨率得分图
-    cv::Mat scoreMap(maxRow, maxCol, CV_32F);
+    // 按 layerIdx 分组: 不同 layer 的 Patch 空间分辨率不同,
+    // 需分别计算得分图再融合
+    int numLayers = 0;
     for (auto& q : queries) {
-        float dist = 0;
-        NearestNeighbor(q.features, dist);
-        scoreMap.at<float>(q.patchRow, q.patchCol) = dist;
+        if (q.layerIdx + 1 > numLayers) numLayers = q.layerIdx + 1;
     }
 
-    // 双线性上采样到原图尺寸
-    cv::Mat upsampled;
-    cv::resize(scoreMap, upsampled, cv::Size(imgW, imgH), 0, 0, cv::INTER_LINEAR);
+    if (numLayers <= 1) {
+        // 单层: 构建低分辨率得分图 → 双线性上采样
+        int maxRow = 0, maxCol = 0;
+        for (auto& q : queries) {
+            if (q.patchRow + 1 > maxRow) maxRow = q.patchRow + 1;
+            if (q.patchCol + 1 > maxCol) maxCol = q.patchCol + 1;
+        }
+        if (maxRow == 0 || maxCol == 0) return {};
 
-    // 转为连续内存的 vector 返回
+        cv::Mat scoreMap(maxRow, maxCol, CV_32F);
+        for (auto& q : queries) {
+            float dist = 0;
+            NearestNeighbor(q.features, dist);
+            scoreMap.at<float>(q.patchRow, q.patchCol) = dist;
+        }
+        cv::Mat upsampled;
+        cv::resize(scoreMap, upsampled, cv::Size(imgW, imgH), 0, 0, cv::INTER_LINEAR);
+
+        std::vector<float> result(imgW * imgH);
+        std::copy(upsampled.begin<float>(), upsampled.end<float>(), result.begin());
+        return result;
+    }
+
+    // 多层融合: 每层独立计算得分图 → 上采样到原图 → 逐像素取最大值
+    cv::Mat fused(imgH, imgW, CV_32F, cv::Scalar(0));
+
+    for (int li = 0; li < numLayers; li++) {
+        int maxRow = 0, maxCol = 0;
+        for (auto& q : queries) {
+            if (q.layerIdx != li) continue;
+            if (q.patchRow + 1 > maxRow) maxRow = q.patchRow + 1;
+            if (q.patchCol + 1 > maxCol) maxCol = q.patchCol + 1;
+        }
+        if (maxRow == 0 || maxCol == 0) continue;
+
+        cv::Mat layerMap(maxRow, maxCol, CV_32F);
+        for (auto& q : queries) {
+            if (q.layerIdx != li) continue;
+            float dist = 0;
+            NearestNeighbor(q.features, dist);
+            layerMap.at<float>(q.patchRow, q.patchCol) = dist;
+        }
+
+        cv::Mat upsampled;
+        cv::resize(layerMap, upsampled, cv::Size(imgW, imgH), 0, 0, cv::INTER_LINEAR);
+
+        for (int r = 0; r < imgH; r++) {
+            float* fr = fused.ptr<float>(r);
+            float* ur = upsampled.ptr<float>(r);
+            for (int c = 0; c < imgW; c++) {
+                if (ur[c] > fr[c]) fr[c] = ur[c];
+            }
+        }
+    }
+
     std::vector<float> result(imgW * imgH);
-    std::copy(upsampled.begin<float>(), upsampled.end<float>(), result.begin());
+    std::copy(fused.begin<float>(), fused.end<float>(), result.begin());
     return result;
 }
 

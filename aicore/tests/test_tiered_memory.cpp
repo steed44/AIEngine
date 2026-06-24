@@ -237,6 +237,33 @@ TEST(TieredMemoryBankTest, ComputeOnCPUCorrectShape) {
     removeIfPossible(testPath("test_cpu_shape.bin"));
 }
 
+TEST(TieredMemoryBankTest, ComputeOnCPUMultiLayer) {
+    CreateTestBankFile(testPath("test_multi_layer.bin"), 10, 4);
+
+    TieredMemoryBank bank;
+    ASSERT_TRUE(bank.Load(testPath("test_multi_layer.bin")));
+
+    std::vector<PatchFeature> queries;
+    for (int r = 0; r < 2; r++) {
+        for (int c = 0; c < 2; c++) {
+            PatchFeature q;
+            q.features = {0, 0, 0, 0};
+            q.layerIdx = 0; q.patchRow = r; q.patchCol = c;
+            queries.push_back(q);
+        }
+    }
+    PatchFeature ql;
+    ql.features = {0, 0, 0, 0};
+    ql.layerIdx = 1; ql.patchRow = 0; ql.patchCol = 0;
+    queries.push_back(ql);
+
+    auto result = bank.ComputeAnomalyMap(queries, 8, 8);
+    EXPECT_EQ(result.size(), static_cast<size_t>(64));
+
+    bank.Clear();
+    removeIfPossible(testPath("test_multi_layer.bin"));
+}
+
 TEST(TieredMemoryBankTest, ComputeOnCPUExactMatch) {
     CreateZerosBankFile(testPath("test_exact.bin"), 2);
 

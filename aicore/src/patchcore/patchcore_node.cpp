@@ -25,10 +25,19 @@ namespace aicore {
 Status PatchCoreNode::Init(const NodeConfig& config) {
     name_ = config.count("name") ? config.at("name") : "patchcore";
 
+    // ---- 校验必填配置 ----
+    if (config.find("model_path") == config.end()) {
+        return Status{StatusCode::ErrorConfigParse,
+            "patchcore: model_path is required"};
+    }
+    if (config.find("memory_bank_path") == config.end()) {
+        return Status{StatusCode::ErrorConfigParse,
+            "patchcore: memory_bank_path is required"};
+    }
+
     auto bt = config.find("backbone");
     std::string backboneType = (bt != config.end()) ? bt->second : "opencv_dnn";
 
-    // 创建主 backbone
     backbone_ = CreateBackbone(backboneType, config);
     if (!backbone_) {
         return Status{StatusCode::ErrorConfigParse,
@@ -37,8 +46,7 @@ Status PatchCoreNode::Init(const NodeConfig& config) {
     auto s = backbone_->Init(config);
     if (!s) return s;
 
-    // 额外创建 CPU backbone（OpenCV DNN）和 GPU backbone（LibTorch）
-    // 供 Scheduler 动态切换使用
+    // 额外创建 CPU backbone 和 GPU backbone，供 Scheduler 动态切换
     auto cpuCfg = config;
     cpuCfg["backbone"] = "opencv_dnn";
     cpuBackbone_ = CreateBackbone("opencv_dnn", cpuCfg);
@@ -49,13 +57,14 @@ Status PatchCoreNode::Init(const NodeConfig& config) {
     gpuBackbone_ = CreateBackbone("libtorch", gpuCfg);
     if (gpuBackbone_) gpuBackbone_->Init(gpuCfg);
 
-    // 加载预训练的记忆库文件（若配置中指定）
+    // 加载记忆库
     auto mn = config.find("memory_bank_path");
-    if (mn != config.end()) {
-        if (!memoryBank_.Load(mn->second)) {
-            return Status{StatusCode::ErrorModelLoad, "patchcore: cannot load memory bank"};
-        }
+    auto loadStatus = memoryBank_.Load(mn->second);
+    if (!loadStatus) {
+        return Status{StatusCode::ErrorModelLoad,
+            "patchcore: cannot load memory bank: " + loadStatus.message};
     }
+    memoryBank_.PromoteToGPU();
 
     auto is = config.find("input_size");
     if (is != config.end()) inputSize_ = std::stoi(is->second);
@@ -63,14 +72,16 @@ Status PatchCoreNode::Init(const NodeConfig& config) {
     auto at = config.find("anomaly_threshold");
     if (at != config.end()) anomalyThreshold_ = std::stof(at->second);
 
+    auto ts = config.find("max_tile_size");
+    if (ts != config.end()) maxTileSize_ = std::stoi(ts->second);
+
     return Status{};
 }
 
 // -------------------------------------------------------
 // 处理一帧图像：提取特征 → 与记忆库比对 → 生成异常热力图和评分
-// 输出帧包含：
-//   - anomaly_score: 图像级别的最大异常得分
-//   - is_anomaly: 是否异常（二值判定，基于 anomalyThreshold_）
+// 支持大图自动分片处理: 当图像宽或高超过 maxTileSize_ 时,
+//   将图像拆分为非重叠分片, 每片独立推理, 结果融合后输出
 // -------------------------------------------------------
 Status PatchCoreNode::Process(const std::vector<Frame>& inputs,
                                std::vector<Frame>& outputs) {
@@ -83,45 +94,77 @@ Status PatchCoreNode::Process(const std::vector<Frame>& inputs,
         return Status{StatusCode::ErrorPreprocess, "patchcore: empty image"};
     }
 
-    // Step 1: backbone 提取局部 Patch 特征
-    // 根据 Scheduler 决策选择 GPU 或 CPU backbone
-    // GPU OOM 时自动降级到 CPU
-    std::vector<PatchFeature> patchFeatures;
-    bool useGpu = Scheduler::Instance().InferenceUseGPU() && gpuBackbone_;
-
-    if (useGpu) {
-        try {
-            patchFeatures = gpuBackbone_->Extract(img);
-        } catch (const std::runtime_error&) {
-            // GPU OOM → 自动降级到 CPU
-            if (cpuBackbone_) {
-                patchFeatures = cpuBackbone_->Extract(img);
+    auto pickBackbone = [&]() -> IBackbone* {
+        if (Scheduler::Instance().InferenceUseGPU() && gpuBackbone_) {
+            try {
+                gpuBackbone_->Extract(img);
+                return gpuBackbone_.get();
+            } catch (const std::runtime_error&) {
             }
         }
-    } else if (cpuBackbone_) {
-        patchFeatures = cpuBackbone_->Extract(img);
+        if (cpuBackbone_) return cpuBackbone_.get();
+        return backbone_.get();
+    };
+
+    cv::Mat fullMap;
+    bool needsTiling = (maxTileSize_ > 0) &&
+        (img.cols > maxTileSize_ || img.rows > maxTileSize_);
+
+    if (!needsTiling) {
+        // ── 小图: 整图一次性推理 ──
+        auto backbone = pickBackbone();
+        auto features = backbone->Extract(img);
+        if (features.empty()) {
+            return Status{StatusCode::ErrorModelInfer,
+                "patchcore: backbone returned no features"};
+        }
+        auto anomalyData = memoryBank_.ComputeAnomalyMap(features, img.rows, img.cols);
+        if (anomalyData.empty()) {
+            return Status{StatusCode::ErrorInternal,
+                "patchcore: anomaly map empty"};
+        }
+        fullMap = cv::Mat(img.rows, img.cols, CV_32F, anomalyData.data()).clone();
     } else {
-        patchFeatures = backbone_->Extract(img);
-    }
+        // ── 大图: 分片处理, max-fusion 拼接 ──
+        fullMap = cv::Mat::zeros(img.rows, img.cols, CV_32F);
 
-    if (patchFeatures.empty()) {
-        return Status{StatusCode::ErrorModelInfer, "patchcore: backbone returned no features"};
-    }
+        int tileH = std::min(maxTileSize_, img.rows);
+        int tileW = std::min(maxTileSize_, img.cols);
+        int overlap = 32; // 融合重叠宽度
 
-    // Step 2: 逐 Patch 与 MemoryBank 最近邻比对，生成异常热力图
-    auto anomalyMap = memoryBank_.ComputeAnomalyMap(patchFeatures, img.rows, img.cols);
-    if (anomalyMap.empty()) {
-        return Status{StatusCode::ErrorInternal, "patchcore: anomaly map empty"};
-    }
+        for (int y0 = 0; y0 < img.rows; y0 += tileH) {
+            for (int x0 = 0; x0 < img.cols; x0 += tileW) {
+                int y1 = std::min(y0 + tileH + overlap, img.rows);
+                int x1 = std::min(x0 + tileW + overlap, img.cols);
+                int cropY0 = std::max(0, y0 - overlap);
+                int cropX0 = std::max(0, x0 - overlap);
+                // 限制尺寸不超过 tile
+                y1 = std::min(y1, cropY0 + tileH + overlap);
+                x1 = std::min(x1, cropX0 + tileW + overlap);
 
-    // Step 3: 将浮点热力图包装为 cv::Mat 并取最大值作为帧级异常得分
-    cv::Mat scoreMap(img.rows, img.cols, CV_32F, anomalyMap.data());
+                cv::Rect roi(cropX0, cropY0, x1 - cropX0, y1 - cropY0);
+                cv::Mat tile = img(roi);
+
+                auto backbone = pickBackbone();
+                auto features = backbone->Extract(tile);
+                if (features.empty()) continue;
+
+                auto tileAnomaly = memoryBank_.ComputeAnomalyMap(
+                    features, tile.rows, tile.cols);
+                if (tileAnomaly.empty()) continue;
+
+                cv::Mat tileMap(tile.rows, tile.cols, CV_32F, tileAnomaly.data());
+                // max-fusion 拼入 fullMap
+                cv::Mat dst = fullMap(roi);
+                cv::max(dst, tileMap, dst);
+            }
+        }
+    }
 
     double maxVal = 0;
-    cv::minMaxLoc(scoreMap, nullptr, &maxVal);
+    cv::minMaxLoc(fullMap, nullptr, &maxVal);
 
-    // Step 4: 异常判定，构造输出帧
-    Frame out(scoreMap.clone());
+    Frame out(fullMap.clone());
     out.roiMap["anomaly_score"] = static_cast<float>(maxVal);
     out.roiMap["is_anomaly"] = maxVal > anomalyThreshold_ ? 1.0f : 0.0f;
     outputs.push_back(std::move(out));
