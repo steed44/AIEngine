@@ -69,6 +69,11 @@ set(AICORE_SOURCES
     src/patchcore/memory_manager.cpp
     src/patchcore/tiered_memory_bank.cpp
     src/patchcore/nn_search.cu
+    src/patchcore/scheduler.cpp
+    src/api/scheduler_api.cpp
+    src/server/model_registry.cpp
+    src/server/inference_server.cpp
+    src/server/server_api.cpp
 )
 
 # 可选：若找到 LibTorch 则添加其 backbone 实现

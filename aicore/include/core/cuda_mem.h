@@ -1,9 +1,13 @@
+// CUDA GPU 显存 RAII 封装
+// 自动管理 cudaMalloc/cudaFree 生命周期，防止显存泄漏
 #pragma once
 #include <cuda_runtime.h>
 #include <cstddef>
 
 namespace aicore {
 
+// GPU 显存管理器（RAII）
+// 构造时分配，析构时自动释放；支持 move 语义但不支持 copy
 class CudaMem {
 public:
     CudaMem() = default;

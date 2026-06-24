@@ -1,18 +1,23 @@
+// AI 引擎单例实现
+// 管理 pipeline 的初始化、执行、异步调度和资源释放
 #include "engine/ai_engine.h"
 #include "config/config_parser.h"
 #include "config/pipeline_builder.h"
 
 namespace aicore {
 
+// 获取单例实例（线程安全的局部静态变量）
 AiEngine& AiEngine::GetInstance() {
     static AiEngine instance;
     return instance;
 }
 
+// 析构时自动关闭引擎
 AiEngine::~AiEngine() {
     Shutdown();
 }
 
+// 初始化：解析 JSON 配置 → 构建 Pipeline → 准备引擎池
 Status AiEngine::Init(const std::string& configJson) {
     std::lock_guard<std::mutex> lock(mutex_);
 
@@ -22,6 +27,7 @@ Status AiEngine::Init(const std::string& configJson) {
 
     enginePool_ = std::make_shared<EnginePool>();
 
+    // 解析 JSON 配置
     ConfigParser parser;
     PipelineConfig pipelineConfig;
     auto parseStatus = parser.Parse(configJson, pipelineConfig);
@@ -30,6 +36,7 @@ Status AiEngine::Init(const std::string& configJson) {
         return parseStatus;
     }
 
+    // 根据配置构建 Pipeline DAG
     PipelineBuilder builder;
     std::unique_ptr<IPipeline> pipeline;
     auto s = builder.Build(pipelineConfig, pipeline, enginePool_);
@@ -42,6 +49,7 @@ Status AiEngine::Init(const std::string& configJson) {
     return Status{};
 }
 
+// 同步执行推理（线程安全）
 Status AiEngine::Execute(const Frame& input, Result& output) {
     std::lock_guard<std::mutex> lock(mutex_);
 
@@ -52,6 +60,7 @@ Status AiEngine::Execute(const Frame& input, Result& output) {
     return pipeline_->Execute(input, output);
 }
 
+// 异步执行推理（线程安全）
 Status AiEngine::ExecuteAsync(const Frame& input,
                                std::function<void(const Result&)> callback) {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -63,6 +72,7 @@ Status AiEngine::ExecuteAsync(const Frame& input,
     return pipeline_->ExecuteAsync(input, std::move(callback));
 }
 
+// 关闭引擎：停止流水线 + 释放引擎池
 void AiEngine::Shutdown() {
     std::lock_guard<std::mutex> lock(mutex_);
 
@@ -73,6 +83,7 @@ void AiEngine::Shutdown() {
     enginePool_.reset();
 }
 
+// 查询管道状态（未初始化时返回 Stopped）
 PipelineState AiEngine::GetState() const {
     std::lock_guard<std::mutex> lock(mutex_);
 

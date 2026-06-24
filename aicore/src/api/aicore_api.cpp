@@ -175,6 +175,29 @@ void aicore_result_free(AICoreResult result) {
     delete static_cast<Result*>(result);
 }
 
+int aicore_result_get_anomaly_map(AICoreResult result, int detIndex,
+                                    float** outData, int* outW, int* outH) {
+    if (!result || !outData || !outW || !outH) return -1;
+    auto* r = static_cast<Result*>(result);
+    if (detIndex < 0 || detIndex >= (int)r->detections.size()) return -1;
+    auto& nr = r->detections[detIndex];
+    if (nr.anomalyMap.empty()) return -1;
+    if (nr.anomalyMap.type() != CV_32F) return -1;
+
+    *outW = nr.anomalyMap.cols;
+    *outH = nr.anomalyMap.rows;
+    size_t bytes = (*outW) * (*outH) * sizeof(float);
+    float* data = (float*)malloc(bytes);
+    if (!data) return -1;
+    memcpy(data, nr.anomalyMap.ptr<float>(), bytes);
+    *outData = data;
+    return 0;
+}
+
+void aicore_result_free_anomaly_map(float* data) {
+    free(data);
+}
+
 /**
  * 销毁管线对象，释放所有后端和处理器资源
  * @param pipeline 要销毁的管线句柄

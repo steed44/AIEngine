@@ -25,6 +25,7 @@ private slots:
     void onOpenImage();          // 槽：打开图片并启动推理
     void onInferenceFinished();  // 槽：推理完成后更新界面
     void onTrainingDialog();     // 槽：打开训练对话框
+    void onSchedulerPriority(int mode); // 槽：设置 GPU 调度优先级
 
 private:
     void initPipeline();                           // 初始化推理流水线
@@ -36,7 +37,11 @@ private:
     QScrollArea* scrollArea_;        // 可滚动的图片显示区域
     QTextEdit* resultText_;          // 结果文本显示框
     QAction* openAction_ = nullptr;  // "打开图片"菜单动作
+    QAction* inferPriorityAction_ = nullptr;   // "推理优先"菜单动作
+    QAction* trainPriorityAction_ = nullptr;   // "训练优先"菜单动作
+    QAction* balancedPriorityAction_ = nullptr; // "均衡"菜单动作
     AICorePipeline pipeline_ = nullptr;            // 推理流水线句柄
+    AICoreResult lastResult_ = nullptr;            // 最近一次推理结果（生命周期跨 onInferenceFinished）
     QFutureWatcher<void>* watcher_ = nullptr;      // 异步任务监视器
     QImage originalImage_;           // 原始图片副本
     QString lastJson_;               // 上一次推理的 JSON 结果

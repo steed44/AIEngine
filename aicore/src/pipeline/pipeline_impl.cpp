@@ -254,7 +254,7 @@ Status PipelineImpl::Execute(const Frame& input, Result& output) {
     output.totalLatencyMs = std::chrono::duration<double, std::milli>(end - start).count();
     output.nodeMetrics = std::move(metrics);
 
-    // 从出口节点的输出帧 roiMap 中提取检测结果
+    // 从出口节点的输出帧提取检测结果和异常热力图
     for (auto& exitId : exitNodes_) {
         auto it = nodeOutputs.find(exitId);
         if (it == nodeOutputs.end()) continue;
@@ -263,6 +263,10 @@ Status PipelineImpl::Execute(const Frame& input, Result& output) {
             NodeResult nr;
             nr.nodeId = exitId;
             nr.measurements.insert(f.roiMap.begin(), f.roiMap.end());
+            // 若帧图像是单通道浮点图（异常热力图），一并存入结果
+            if (f.image.type() == CV_32F && f.image.channels() == 1) {
+                nr.anomalyMap = f.image.clone();
+            }
             output.detections.push_back(std::move(nr));
         }
     }

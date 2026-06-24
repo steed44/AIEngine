@@ -66,10 +66,17 @@ target_sources(aicore_tests PRIVATE
     ${CMAKE_SOURCE_DIR}/src/patchcore/folder_dataset.cpp
     ${CMAKE_SOURCE_DIR}/src/patchcore/tiered_memory_bank.cpp
     ${CMAKE_SOURCE_DIR}/src/patchcore/memory_manager.cpp
+    ${CMAKE_SOURCE_DIR}/src/patchcore/scheduler.cpp
     # Multi-ROI: 多区域多模型支持
     ${CMAKE_SOURCE_DIR}/src/patchcore/roi_def.cpp
     ${CMAKE_SOURCE_DIR}/src/patchcore/roi_trainer.cpp
     ${CMAKE_SOURCE_DIR}/src/patchcore/multi_roi_node.cpp
+    # Scheduler API: GPU 调度器 C API
+    ${CMAKE_SOURCE_DIR}/src/api/scheduler_api.cpp
+    # Server: 推理服务器
+    ${CMAKE_SOURCE_DIR}/src/server/model_registry.cpp
+    ${CMAKE_SOURCE_DIR}/src/server/inference_server.cpp
+    ${CMAKE_SOURCE_DIR}/src/server/server_api.cpp
 )
 
 # 可选：LibTorch 源文件

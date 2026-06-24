@@ -99,6 +99,7 @@ struct NodeResult {
     BBox bbox;                                     // 检测框（原始图像坐标系）
     cv::Mat roi;                                    // 裁剪的 ROI 图像（可选）
     std::map<std::string, double> measurements;    // 附加测量值（如面积、长度等）
+    cv::Mat anomalyMap;                            // PatchCore 异常热力图（CV_32F，与原图同尺寸）
 };
 
 // 单节点执行指标，用于性能监控和调试

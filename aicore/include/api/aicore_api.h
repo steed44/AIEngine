@@ -87,6 +87,23 @@ AICORE_C_API int aicore_engine_execute(const unsigned char* imageData,
                                         AICoreResult* resultOut,
                                         const char** errorOut);
 
+// ──────────────────────────────────────────
+// 异常热力图 API
+// ──────────────────────────────────────────
+
+// 获取检测结果中指定索引的异常热力图数据
+// @param result      推理结果句柄
+// @param detIndex    检测结果索引（0-based）
+// @param outData     传出浮点像素数据指针（CV_32F，行优先），调用者需通过 aicore_result_free_anomaly_map 释放
+// @param outW        传出热力图宽度
+// @param outH        传出热力图高度
+// @return 0 成功，-1 失败（无热力图或索引越界）
+AICORE_C_API int aicore_result_get_anomaly_map(AICoreResult result, int detIndex,
+                                                 float** outData, int* outW, int* outH);
+
+// 释放由 aicore_result_get_anomaly_map 返回的热力图数据
+AICORE_C_API void aicore_result_free_anomaly_map(float* data);
+
 // 销毁引擎单例，释放所有资源
 AICORE_C_API void aicore_engine_shutdown();
 

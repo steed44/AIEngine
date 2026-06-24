@@ -3,6 +3,7 @@
 // 功能：实现 PatchCore 推理节点的初始化和 Process 逻辑
 // ============================================================
 #include "patchcore/patchcore_node.h"
+#include "patchcore/scheduler.h"
 #include <opencv2/imgproc.hpp>
 
 namespace aicore {
@@ -15,6 +16,11 @@ namespace aicore {
 //   - memory_bank_path: 预训练记忆库文件路径（可选）
 //   - input_size: 输入图像缩放尺寸（可选，默认 224）
 //   - anomaly_threshold: 异常判定阈值（可选，默认 0.5）
+//
+// 调度器支持：
+//   除主 backbone 外，额外创建 GPU backbone（LibTorch）和
+//   CPU backbone（OpenCV DNN），运行时根据 Scheduler 策略
+//   自动选择 GPU/CPU 后端，GPU OOM 时自动降级到 CPU。
 // -------------------------------------------------------
 Status PatchCoreNode::Init(const NodeConfig& config) {
     name_ = config.count("name") ? config.at("name") : "patchcore";
@@ -22,7 +28,7 @@ Status PatchCoreNode::Init(const NodeConfig& config) {
     auto bt = config.find("backbone");
     std::string backboneType = (bt != config.end()) ? bt->second : "opencv_dnn";
 
-    // 通过工厂方法创建 backbone 实例
+    // 创建主 backbone
     backbone_ = CreateBackbone(backboneType, config);
     if (!backbone_) {
         return Status{StatusCode::ErrorConfigParse,
@@ -30,6 +36,18 @@ Status PatchCoreNode::Init(const NodeConfig& config) {
     }
     auto s = backbone_->Init(config);
     if (!s) return s;
+
+    // 额外创建 CPU backbone（OpenCV DNN）和 GPU backbone（LibTorch）
+    // 供 Scheduler 动态切换使用
+    auto cpuCfg = config;
+    cpuCfg["backbone"] = "opencv_dnn";
+    cpuBackbone_ = CreateBackbone("opencv_dnn", cpuCfg);
+    if (cpuBackbone_) cpuBackbone_->Init(cpuCfg);
+
+    auto gpuCfg = config;
+    gpuCfg["backbone"] = "libtorch";
+    gpuBackbone_ = CreateBackbone("libtorch", gpuCfg);
+    if (gpuBackbone_) gpuBackbone_->Init(gpuCfg);
 
     // 加载预训练的记忆库文件（若配置中指定）
     auto mn = config.find("memory_bank_path");
@@ -66,19 +84,31 @@ Status PatchCoreNode::Process(const std::vector<Frame>& inputs,
     }
 
     // Step 1: backbone 提取局部 Patch 特征
-    // backbone（如 WideResNet50）将输入图像映射到多层次特征图。
-    // 每一层特征图的一个空间位置对应输入图像的一个"感受野"区域（Patch）。
-    // 例如 layer3 输出 28×28×512 的特征图，则每个 Patch 对应约 16×16 像素的输入区域。
-    // 这些 Patch 特征编码了该区域的纹理、边缘、形状等视觉信息。
-    auto patchFeatures = backbone_->Extract(img);
+    // 根据 Scheduler 决策选择 GPU 或 CPU backbone
+    // GPU OOM 时自动降级到 CPU
+    std::vector<PatchFeature> patchFeatures;
+    bool useGpu = Scheduler::Instance().InferenceUseGPU() && gpuBackbone_;
+
+    if (useGpu) {
+        try {
+            patchFeatures = gpuBackbone_->Extract(img);
+        } catch (const std::runtime_error&) {
+            // GPU OOM → 自动降级到 CPU
+            if (cpuBackbone_) {
+                patchFeatures = cpuBackbone_->Extract(img);
+            }
+        }
+    } else if (cpuBackbone_) {
+        patchFeatures = cpuBackbone_->Extract(img);
+    } else {
+        patchFeatures = backbone_->Extract(img);
+    }
+
     if (patchFeatures.empty()) {
         return Status{StatusCode::ErrorModelInfer, "patchcore: backbone returned no features"};
     }
 
     // Step 2: 逐 Patch 与 MemoryBank 最近邻比对，生成异常热力图
-    // 对每个 Patch 特征向量 f_p，在记忆库中找最近邻 f_n，
-    // 异常得分 = ||f_p - f_n||₂（L2 距离）
-    // 得分越高 = 该 Patch 越"异常"（偏离正常特征分布）
     auto anomalyMap = memoryBank_.ComputeAnomalyMap(patchFeatures, img.rows, img.cols);
     if (anomalyMap.empty()) {
         return Status{StatusCode::ErrorInternal, "patchcore: anomaly map empty"};
@@ -90,12 +120,7 @@ Status PatchCoreNode::Process(const std::vector<Frame>& inputs,
     double maxVal = 0;
     cv::minMaxLoc(scoreMap, nullptr, &maxVal);
 
-    // Step 4: 异常判定
-    // is_anomaly = max(anomaly_map) > threshold
-    // 使用最大得分而非平均分的原因是：
-    //   如果图像中只有一小块区域异常（如微小划痕），平均分会淹没该信号，
-    //   而最大分能捕捉到局部异常。这也是 PatchCore 的论文设计。
-    // 构造输出帧，携带异常得分和判定结果
+    // Step 4: 异常判定，构造输出帧
     Frame out(scoreMap.clone());
     out.roiMap["anomaly_score"] = static_cast<float>(maxVal);
     out.roiMap["is_anomaly"] = maxVal > anomalyThreshold_ ? 1.0f : 0.0f;

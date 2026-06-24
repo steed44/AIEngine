@@ -7,6 +7,7 @@
 #include "patchcore/backbone.h"
 #include "patchcore/coreset_sampler.h"
 #include "patchcore/folder_dataset.h"
+#include "patchcore/scheduler.h"
 #include <random>
 
 namespace aicore {
@@ -15,12 +16,17 @@ namespace aicore {
 // 通用训练接口：遍历数据集提取特征，Coreset 采样后保存 MemoryBank
 //
 // 训练流水线：
-//   1. 创建并初始化 backbone（根据 cfg.backboneType）
-//   2. 遍历数据集中每张图像，提取所有 PatchFeature
-//   3. 若特征数超过 maxFeatures，随机打乱后截断
-//   4. 按 coresetFraction 比例用 CoresetSampler 采样
-//   5. 用采样后的特征子集构建 MemoryBank
-//   6. 序列化保存到 outputPath
+//   1. 根据 Scheduler 决策选择 GPU 或 CPU backbone
+//   2. 创建并初始化 backbone
+//   3. 遍历数据集中每张图像，提取所有 PatchFeature
+//   4. 若特征数超过 maxFeatures，随机打乱后截断
+//   5. 按 coresetFraction 比例用 CoresetSampler 采样
+//   6. 用采样后的特征子集构建 MemoryBank
+//   7. 序列化保存到 outputPath
+//
+// GPU OOM 降级：
+//   训练循环中 catch runtime_error → 触发 RecheckGPU →
+//   kBalanced/kInference 模式自动降级为 CPU backbone 重试
 // -------------------------------------------------------
 Status PatchCoreTrainer::Train(IDataset& dataset, const std::string& modelPath,
                                 const std::string& outputPath,
@@ -38,25 +44,55 @@ Status PatchCoreTrainer::Train(IDataset& dataset, const std::string& modelPath,
         backboneConfig["backend_type"] = cfg.backendType;
     }
 
+    // 根据 Scheduler 决策选择 GPU 或 CPU backbone 类型
+    std::string effectiveType = cfg.backboneType;
+    if (Scheduler::Instance().TrainingUseGPU()) {
+        backboneConfig["backbone"] = "libtorch";
+        effectiveType = "libtorch";
+    } else {
+        backboneConfig["backbone"] = "opencv_dnn";
+        effectiveType = "opencv_dnn";
+    }
+
     // 创建并初始化 backbone
-    auto backbone = CreateBackbone(cfg.backboneType, backboneConfig);
+    bool isBackboneGpu = (effectiveType == "libtorch");
+    auto backbone = CreateBackbone(effectiveType, backboneConfig);
     if (!backbone) {
         return Status{StatusCode::ErrorConfigParse,
-            "patchcore: unknown backbone: " + cfg.backboneType};
+            "patchcore: unknown backbone: " + effectiveType};
     }
     auto s = backbone->Init(backboneConfig);
     if (!s) return s;
 
     // ---- 特征提取阶段 ----
-    // 遍历数据集中每张正常图像，用 backbone 提取所有 Patch 特征。
-    // 所有特征被拼接到 allFeatures 向量中，
-    // 特征总量 = 图像数 × 每图 Patch 数（如 100 张图 × 28×28 = 78400 个特征）
     std::vector<PatchFeature> allFeatures;
 
-    for (size_t i = 0; i < dataset.Size(); i++) {
+    for (size_t i = 0; i < dataset.Size(); ) {
         auto sample = dataset.Get(i);
-        auto feats = backbone->Extract(sample.image);
+        std::vector<PatchFeature> feats;
+        if (isBackboneGpu) {
+            try {
+                feats = backbone->Extract(sample.image);
+            } catch (const std::runtime_error&) {
+                // GPU OOM: 重新探测显存，必要时降级到 CPU
+                Scheduler::Instance().RecheckGPU();
+                if (!Scheduler::Instance().TrainingUseGPU()) {
+                    // kBalanced/kInference 模式：降级 CPU 重试当前样本
+                    backboneConfig["backbone"] = "opencv_dnn";
+                    backbone = CreateBackbone("opencv_dnn", backboneConfig);
+                    if (backbone) backbone->Init(backboneConfig);
+                    isBackboneGpu = false;
+                    continue;
+                }
+                // kTraining 模式下 GPU OOM → 硬错误
+                return Status{StatusCode::ErrorGpuDevice,
+                    "OOM in kTraining mode, cannot continue"};
+            }
+        } else {
+            feats = backbone->Extract(sample.image);
+        }
         allFeatures.insert(allFeatures.end(), feats.begin(), feats.end());
+        i++;
     }
 
     if (allFeatures.empty()) {
@@ -64,31 +100,19 @@ Status PatchCoreTrainer::Train(IDataset& dataset, const std::string& modelPath,
     }
 
     // ---- 特征上限截断 ----
-    // maxFeatures 防止记忆库过大导致：
-    // 1. 磁盘文件过大（序列化慢）
-    // 2. 推理时暴力 NN 搜索变慢（O(N·D)）
-    // 3. Coreset 采样时间开销 O(n·k)
-    // 随机打乱后截断比简单截断更公平——保证不同图像的 Patch 有均等机会被保留
     if (allFeatures.size() > cfg.maxFeatures) {
         std::shuffle(allFeatures.begin(), allFeatures.end(),
                      std::mt19937(std::random_device()()));
         allFeatures.resize(cfg.maxFeatures);
     }
 
-    // 计算 Coreset 目标采样数量，至少保留一个
     size_t targetSize = static_cast<size_t>(allFeatures.size() * cfg.coresetFraction);
     if (targetSize == 0) targetSize = 1;
 
     // ---- Coreset 核心集采样 ----
-    // 用最远点采样从 allFeatures 中选取最具多样性的子集。
-    // 例如 100000 个特征以 10% 比例采样到 10000 个。
-    // 相比随机采样，Coreset 能更好的保持特征空间的覆盖范围，
-    // 减少因采样导致的"漏检"风险。
-    // 这是 PatchCore 论文的核心贡献之一。
     CoresetSampler sampler;
     auto indices = sampler.Sample(allFeatures, targetSize);
 
-    // 用采样结果构建 MemoryBank 并保存
     MemoryBank bank;
     std::vector<PatchFeature> coreFeatures;
     for (auto idx : indices) {
@@ -106,7 +130,6 @@ Status PatchCoreTrainer::Train(IDataset& dataset, const std::string& modelPath,
 
 // -------------------------------------------------------
 // 便捷接口：从文件夹路径加载数据集后调用 Train
-// 自动创建 FolderDataset 并加载指定文件夹中的图像
 // -------------------------------------------------------
 Status PatchCoreTrainer::TrainFromFolder(const std::string& folderPath,
                                           const std::string& modelPath,

@@ -5,6 +5,7 @@
 
 #include "main_window.h"
 #include "training_dialog.h"
+#include "api/scheduler_api.h"
 #include <QMenuBar>
 #include <QFileDialog>
 #include <QMessageBox>
@@ -15,6 +16,7 @@
 #include <QJsonObject>
 #include <QJsonArray>
 #include <QtConcurrent>
+#include <QActionGroup>
 #include <fstream>
 #include <sstream>
 #include <vector>
@@ -33,6 +35,23 @@ MainWindow::MainWindow(QWidget* parent)
     // --- 菜单栏：训练菜单 ---
     auto* trainMenu = menuBar()->addMenu("训练");
     trainMenu->addAction("训练配置...", this, &MainWindow::onTrainingDialog, QKeySequence("Ctrl+T"));
+
+    // --- 菜单栏：GPU 调度 ---
+    auto* schedMenu = menuBar()->addMenu("GPU 调度");
+    auto* schedGroup = new QActionGroup(this);
+    inferPriorityAction_ = schedMenu->addAction("推理优先");
+    inferPriorityAction_->setCheckable(true);
+    inferPriorityAction_->setChecked(true);
+    schedGroup->addAction(inferPriorityAction_);
+    trainPriorityAction_ = schedMenu->addAction("训练优先");
+    trainPriorityAction_->setCheckable(true);
+    schedGroup->addAction(trainPriorityAction_);
+    balancedPriorityAction_ = schedMenu->addAction("均衡");
+    balancedPriorityAction_->setCheckable(true);
+    schedGroup->addAction(balancedPriorityAction_);
+    connect(inferPriorityAction_, &QAction::triggered, this, [this]{ onSchedulerPriority(0); });
+    connect(trainPriorityAction_, &QAction::triggered, this, [this]{ onSchedulerPriority(1); });
+    connect(balancedPriorityAction_, &QAction::triggered, this, [this]{ onSchedulerPriority(2); });
 
     // --- 图片显示区域（带滚动） ---
     imageLabel_ = new QLabel("请打开一张图片");
@@ -105,6 +124,14 @@ void MainWindow::showError(const QString& msg) {
     QMessageBox::warning(this, "错误", msg);
 }
 
+// 设置 GPU 调度优先级模式
+void MainWindow::onSchedulerPriority(int mode) {
+    const char* modeStr = "balanced";
+    if (mode == 0) modeStr = "inference";
+    else if (mode == 1) modeStr = "training";
+    aicore_scheduler_set_priority(modeStr);
+}
+
 // 打开训练配置对话框
 void MainWindow::onTrainingDialog() {
     TrainingDialog dlg(this);
@@ -140,6 +167,8 @@ void MainWindow::onOpenImage() {
     std::vector<uchar> data(rgb.sizeInBytes());
     memcpy(data.data(), rgb.bits(), rgb.sizeInBytes());
 
+    // 清理上次结果
+    if (lastResult_) { aicore_result_free(lastResult_); lastResult_ = nullptr; }
     resultText_->setText("推理中...");
     lastJson_.clear();
 
@@ -151,7 +180,7 @@ void MainWindow::onOpenImage() {
         if (ret == 0 && result) {
             const char* json = aicore_result_to_json(result);
             lastJson_ = QString::fromUtf8(json);
-            aicore_result_free(result);
+            lastResult_ = result;  // 保存 result_ 指针供 onInferenceFinished 使用
         } else {
             lastJson_ = QString("{\"error\":\"%1\"}").arg(err ? err : "推理失败");
         }
@@ -159,13 +188,19 @@ void MainWindow::onOpenImage() {
     watcher_->setFuture(future);
 }
 
-// 槽：推理完成 → 显示 JSON 结果并在图片上绘制检测框和异常叠加层
+// 槽：推理完成 → 显示 JSON 结果，绘制检测框和异常热力图，释放 result_
 void MainWindow::onInferenceFinished() {
     if (lastJson_.isEmpty()) return;
 
-    resultText_->setText(lastJson_);           // 显示原始 JSON
-    drawDetections(originalImage_, lastJson_); // 绘制检测框
-    drawAnomalyOverlay(originalImage_, lastJson_); // 绘制异常热力叠加层
+    resultText_->setText(lastJson_);
+    drawDetections(originalImage_, lastJson_);
+    drawAnomalyOverlay(originalImage_, lastJson_);
+
+    // 释放 result_（drawAnomalyOverlay 中通过 C API 读取了热力图数据）
+    if (lastResult_) {
+        aicore_result_free(lastResult_);
+        lastResult_ = nullptr;
+    }
 }
 
 // 在图片上绘制检测框和标签（红色矩形 + 类别名/置信度）
@@ -205,42 +240,75 @@ void MainWindow::drawDetections(QImage& image, const QString& json) {
     imageLabel_->setPixmap(QPixmap::fromImage(image));
 }
 
-// 绘制异常检测热力叠加层：根据 anomaly_score 显示半透明红色叠加
+// 绘制异常检测热力叠加层：从 lastResult_ 读取像素级热力图并渲染 Jet 色彩映射
 void MainWindow::drawAnomalyOverlay(QImage& image, const QString& json) {
     QJsonDocument doc = QJsonDocument::fromJson(json.toUtf8());
     if (doc.isNull() || !doc.isObject()) return;
 
     QJsonObject root = doc.object();
     QJsonArray dets = root["detections"].toArray();
+    int detIndex = -1;
     double score = -1;
-    for (auto& d : dets) {
-        QJsonObject obj = d.toObject();
+    for (int i = 0; i < dets.size(); i++) {
+        QJsonObject obj = dets[i].toObject();
         if (obj.contains("anomaly_score")) {
             score = obj["anomaly_score"].toDouble();
+            detIndex = i;
             break;
         }
     }
     if (score < 0) return;
 
-    bool isAnomaly = score > 0.5;
+    bool gotMap = false;
+    float* mapData = nullptr;
+    int mapW = 0, mapH = 0;
+
+    if (lastResult_) {
+        gotMap = (aicore_result_get_anomaly_map(lastResult_, detIndex,
+                   &mapData, &mapW, &mapH) == 0 && mapData);
+    }
 
     QPainter painter(&image);
-    // 根据异常分数填充半透明红色（分数越高越深）
-    painter.fillRect(image.rect(),
-        QColor(255, 0, 0, static_cast<int>(std::min(score * 200, 100.0))));
+    painter.setRenderHint(QPainter::Antialiasing);
+
+    if (gotMap) {
+        // 像素级 Jet 色彩映射叠加
+        QImage heatmap(image.size(), QImage::Format_ARGB32);
+        heatmap.fill(Qt::transparent);
+        float scaleX = (float)mapW / image.width();
+        float scaleY = (float)mapH / image.height();
+
+        for (int y = 0; y < image.height(); y++) {
+            int my = qMin((int)(y * scaleY), mapH - 1);
+            for (int x = 0; x < image.width(); x++) {
+                float v = mapData[my * mapW + qMin((int)(x * scaleX), mapW - 1)];
+                float t = qBound(0.0f, v / 3.0f, 1.0f);
+                int r, g, b;
+                if (t < 0.25f)      { r = 0; g = (int)(t * 1024); b = 255; }
+                else if (t < 0.5f)  { r = 0; g = 255; b = (int)((0.5f - t) * 1024); }
+                else if (t < 0.75f) { r = (int)((t - 0.5f) * 1024); g = 255; b = 0; }
+                else                { r = 255; g = (int)((1.0f - t) * 1024); b = 0; }
+                int a = qMin((int)(v * 60), 180);
+                heatmap.setPixelColor(x, y, QColor(r, g, b, a));
+            }
+        }
+        painter.drawImage(0, 0, heatmap);
+        aicore_result_free_anomaly_map(mapData);
+    } else {
+        // 退化：纯色半透明叠加
+        int alpha = qMin((int)(score * 200), 100);
+        painter.fillRect(image.rect(), QColor(255, 0, 0, alpha));
+    }
 
     QFont font = painter.font();
     font.setPixelSize(20);
     font.setBold(true);
     painter.setFont(font);
-
-    // 左上角显示异常分数
-    QString text = QString("Anomaly Score: %1").arg(score, 0, 'f', 4);
+    bool isAnomaly = score > 0.5;
     painter.setPen(isAnomaly ? Qt::red : Qt::green);
-    painter.drawText(QPoint(10, 30), text);
+    painter.drawText(QPoint(10, 30), QString("Anomaly Score: %1").arg(score, 0, 'f', 4));
 
     if (isAnomaly) {
-        // 异常时绘制红色边框
         painter.setPen(QPen(Qt::red, 3));
         painter.drawRect(5, 5, image.width() - 10, image.height() - 10);
     }
