@@ -63,7 +63,9 @@ set(AICORE_SOURCES
     src/backend/libtorch_backend.cpp
     src/preprocess/resize_node.cpp
     src/preprocess/normalize_node.cpp
+    src/preprocess/letterbox_node.cpp
     src/postprocess/nms_node.cpp
+    src/postprocess/yolo_decode_node.cpp
     src/patchcore/memory_bank.cpp
     src/patchcore/coreset_sampler.cpp
     src/patchcore/backbone.cpp

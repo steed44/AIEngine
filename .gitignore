@@ -37,8 +37,9 @@ __pycache__/
 .venv/
 venv/
 
-# CMake try_compile debris (random 5-char temp dirs)
+# CMake try_compile debris (random 5-char temp dirs, but not actual source dirs)
 [a-zA-Z0-9][a-zA-Z0-9][a-zA-Z0-9][a-zA-Z0-9][a-zA-Z0-9]/
+!aicore/tests/
 
 # Test artifacts
 test_*.bin

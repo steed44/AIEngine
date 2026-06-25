@@ -5,6 +5,7 @@
 #include "pipeline/pipeline_impl.h"
 #include "config/config_parser.h"
 #include "pipeline/model_node.h"
+#include "postprocess/nms_node.h"
 #include "backend/backend_factory.h"
 #include <algorithm>
 #include <queue>
@@ -50,6 +51,10 @@ void PipelineImpl::AddEdge(const std::string& from, const std::string& to) {
     auto it = nodes_.find(from);
     if (it != nodes_.end()) {
         it->second.outputs.push_back(to);
+    }
+    auto toIt = nodes_.find(to);
+    if (toIt != nodes_.end()) {
+        toIt->second.inputs.push_back(from);
     }
 }
 
@@ -268,6 +273,31 @@ Status PipelineImpl::Execute(const Frame& input, Result& output) {
                 nr.anomalyMap = f.image.clone();
             }
             output.detections.push_back(std::move(nr));
+        }
+    }
+
+    // 如果 pipeline 中有 nms 节点，对检测结果执行 NMS 后处理
+    if (nodes_.count("nms") && !output.detections.empty()) {
+        NmsNode nmsNode;
+        auto it = nodes_.find("nms");
+        if (it != nodes_.end()) {
+            // 从节点配置中获取 NMS 参数
+            NodeConfig nmsConfig;
+            auto procIt = nodes_.find("nms");
+            if (procIt != nodes_.end()) {
+                // NmsNode 已通过 Init 初始化，复用其处理器实例
+                auto nmsProcessor = procIt->second.processor;
+                // 执行 NMS
+                std::vector<Frame> nmsInputs;
+                Frame nmsFrame;
+                nmsFrame.detections = std::move(output.detections);
+                nmsInputs.push_back(std::move(nmsFrame));
+                std::vector<Frame> nmsOutputs;
+                nmsProcessor->Process(nmsInputs, nmsOutputs);
+                if (!nmsOutputs.empty()) {
+                    output.detections = std::move(nmsOutputs[0].detections);
+                }
+            }
         }
     }
 

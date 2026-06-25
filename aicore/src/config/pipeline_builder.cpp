@@ -12,6 +12,8 @@
 #include "preprocess/resize_node.h"
 #include "preprocess/normalize_node.h"
 #include "postprocess/nms_node.h"
+#include "preprocess/letterbox_node.h"
+#include "postprocess/yolo_decode_node.h"
 #include "patchcore/patchcore_node.h"
 #include "patchcore/multi_roi_node.h"
 #include "backend/backend_factory.h"
@@ -53,6 +55,10 @@ Status PipelineBuilder::Build(const PipelineConfig& config,
             processor = std::make_shared<ResizeNode>();
         } else if (pc.type == "normalize") {
             processor = std::make_shared<NormalizeNode>();
+        } else if (pc.type == "letterbox") {
+            processor = std::make_shared<LetterboxNode>();
+        } else if (pc.type == "yolo_decode") {
+            processor = std::make_shared<YoloDecodeNode>();
         } else if (pc.type == "nms") {
             processor = std::make_shared<NmsNode>();
         } else if (pc.type == "merge") {

@@ -59,7 +59,9 @@ Status ModelNode::Process(const std::vector<Frame>& inputs,
         auto s = backend_->Infer(inTensors, outTensors);
         if (!s) return s;
 
-        outputs.push_back(frame);
+        Frame out = frame;
+        out.rawOutputs = std::move(outTensors);
+        outputs.push_back(std::move(out));
     }
     return Status{};
 }

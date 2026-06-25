@@ -17,6 +17,8 @@ struct Frame {
     uint64_t timestamp = 0;                   // 创建时间戳（毫秒精度，steady clock）
     std::string sourceId;                     // 来源标识（如摄像头 ID、视频文件路径等）
     std::map<std::string, float> roiMap;      // ROI（感兴趣区域）名称到置信度/分数的映射
+    std::vector<NodeResult> detections;        // 检测结果列表（NMS 等后处理节点使用）
+    std::vector<Tensor> rawOutputs;            // 模型原始输出张量列表（ModelNode 写入，解码节点消费）
 
     Frame() = default;
 
