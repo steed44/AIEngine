@@ -58,10 +58,11 @@ __global__ void BatchL2Kernel(const float* __restrict__ queries,
 
 void BatchL2DistanceGPU(const float* queries, int M, int D,
                          const float* bank, int N,
-                         float* outBestDists, int* outBestIdxs) {
+                         float* outBestDists, int* outBestIdxs,
+                         cudaStream_t stream) {
     constexpr int kBlockSize = 256;
     int sharedBytes = kBlockSize * (sizeof(float) + sizeof(int));
-    BatchL2Kernel<<<M, kBlockSize, sharedBytes>>>(queries, bank, outBestDists, outBestIdxs, M, N, D);
+    BatchL2Kernel<<<M, kBlockSize, sharedBytes, stream>>>(queries, bank, outBestDists, outBestIdxs, M, N, D);
 }
 
 } // extern "C"

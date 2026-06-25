@@ -23,7 +23,8 @@
 extern "C" void BatchL2DistanceGPU(
     const float* queries, int M, int D,
     const float* bank, int N,
-    float* outBestDists, int* outBestIdxs = nullptr);
+    float* outBestDists, int* outBestIdxs = nullptr,
+    cudaStream_t stream = nullptr);
 
 namespace aicore {
 

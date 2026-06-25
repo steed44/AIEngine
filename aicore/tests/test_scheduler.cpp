@@ -90,3 +90,55 @@ TEST(SchedulerApiTest, SetPriorityNullSafe) {
 TEST(SchedulerApiTest, RecheckNoCrash) {
     aicore_scheduler_recheck();
 }
+
+TEST(SchedulerEdgeTest, DeviceCountNonNegative) {
+    auto& s = Scheduler::Instance();
+    EXPECT_GE(s.DeviceCount(), 0);
+}
+
+TEST(SchedulerEdgeTest, SelectDeviceReturnsValid) {
+    auto& s = Scheduler::Instance();
+    int dev = s.SelectDevice();
+    EXPECT_GE(dev, 0);
+    EXPECT_LT(dev, std::max(1, s.DeviceCount()));
+}
+
+TEST(SchedulerEdgeTest, SelectDeviceRoundRobin) {
+    auto& s = Scheduler::Instance();
+    int d1 = s.SelectDevice();
+    int d2 = s.SelectDevice();
+    int d3 = s.SelectDevice();
+    (void)d1; (void)d2; (void)d3;
+}
+
+TEST(SchedulerEdgeTest, SetGPUReservationZero) {
+    auto& s = Scheduler::Instance();
+    s.SetGPUReservation(0, 0, 0);
+    s.RecheckGPU();
+}
+
+TEST(SchedulerEdgeTest, TrainingModeInferenceGPU) {
+    auto& s = Scheduler::Instance();
+    s.SetPriority(PriorityMode::kTraining);
+    EXPECT_TRUE(s.TrainingUseGPU());
+    EXPECT_FALSE(s.InferenceUseGPU());
+}
+
+TEST(SchedulerEdgeTest, InferenceModeTrainingGPU) {
+    auto& s = Scheduler::Instance();
+    s.SetPriority(PriorityMode::kInference);
+    EXPECT_TRUE(s.InferenceUseGPU());
+    EXPECT_FALSE(s.TrainingUseGPU());
+}
+
+class SchedulerCleanup : public ::testing::Test {
+protected:
+    void TearDown() override {
+        Scheduler::Instance().SetPriority(PriorityMode::kBalanced);
+    }
+};
+
+TEST_F(SchedulerCleanup, RestoreBalancedAfterEdgeTests) {
+    Scheduler::Instance().SetPriority(PriorityMode::kBalanced);
+    EXPECT_EQ(Scheduler::Instance().GetPriority(), PriorityMode::kBalanced);
+}

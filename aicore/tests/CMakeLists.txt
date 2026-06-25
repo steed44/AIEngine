@@ -5,6 +5,14 @@
 #   测试阶段按模块分组: Core → Optimizer → Trainer → PatchCore
 # ============================================================
 
+# GTest via FetchContent — vcpkg 无需安装
+include(FetchContent)
+FetchContent_Declare(googletest
+    GIT_REPOSITORY https://github.com/google/googletest.git
+    GIT_TAG v1.16.0
+)
+FetchContent_MakeAvailable(googletest)
+
 # 自动搜集 tests/*.cpp 测试用例文件
 # 排除 YOLO 测试（需要 LibTorch）
 file(GLOB TEST_SOURCES *.cpp)
@@ -109,8 +117,8 @@ if(Torch_FOUND)
     target_compile_definitions(aicore_tests PRIVATE AICORE_HAS_LIBTORCH)
 endif()
 
-# 链接 GTest 和 OpenCV
-target_link_libraries(aicore_tests PRIVATE GTest::GTest GTest::Main ${OpenCV_LIBS} Python3::Python CUDA::cudart)
+# 链接 GTest (FetchContent) 和 OpenCV
+target_link_libraries(aicore_tests PRIVATE gtest gtest_main ${OpenCV_LIBS} Python3::Python CUDA::cudart)
 get_filename_component(PYTHON3_HOME "${Python3_EXECUTABLE}" DIRECTORY)
 target_compile_definitions(aicore_tests PRIVATE PYTHON3_HOME="${PYTHON3_HOME}")
 # 嵌入式 Python 需要 python3.dll

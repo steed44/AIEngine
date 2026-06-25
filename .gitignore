@@ -46,6 +46,11 @@ test_images/
 empty_test_dir/
 test_err.txt
 test_out.txt
+test_errors.txt
+test_output.txt
+
+# Build logs
+UpgradeLog.htm
 
 # Config override
 pipeline_config.json

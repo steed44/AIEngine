@@ -82,7 +82,7 @@ enum class StatusCode {
 struct Status {
     StatusCode code = StatusCode::OK;   // 状态码
     std::string message;                // 错误描述信息
-    operator bool() const { return code == StatusCode::OK; }
+    operator bool() const noexcept { return code == StatusCode::OK; }
 };
 
 // 检测框，采用中心点坐标 + 宽高表示

@@ -55,4 +55,14 @@ cv::Mat DrawAnomalyOverlay(const cv::Mat& anomalyMap, const cv::Mat& image,
     return overlay;
 }
 
+cv::Mat MaskFromAnomalyMap(const cv::Mat& anomalyMap, float threshold) {
+    CV_Assert(anomalyMap.type() == CV_32F);
+    CV_Assert(anomalyMap.channels() == 1);
+
+    cv::Mat mask;
+    cv::threshold(anomalyMap, mask, threshold, 255.0, cv::THRESH_BINARY);
+    mask.convertTo(mask, CV_8UC1);
+    return mask;
+}
+
 } // namespace aicore

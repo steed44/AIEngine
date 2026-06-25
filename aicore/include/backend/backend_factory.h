@@ -17,4 +17,6 @@ public:
     static std::unique_ptr<IModelBackend> Create(BackendType type);
 };
 
+std::unique_ptr<IModelBackend> CreateONNXRuntimeBackend();
+
 } // namespace aicore

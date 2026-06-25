@@ -1,46 +1,51 @@
-// ============================================================
-// patchcore_node.h — PatchCore 异常检测算法的处理节点
-// 功能：作为管线中的一个处理器节点，接收图像帧并输出异常检测结果
-// 依赖：IBackbone（特征提取）+ MemoryBank（记忆库比对）
-// ============================================================
 #pragma once
 #include "core/processor.h"
 #include "patchcore/tiered_memory_bank.h"
 #include "patchcore/backbone.h"
 #include <string>
 #include <vector>
+#include <memory>
+#include <unordered_map>
+#include "engine/thread_pool.h"
 
 namespace aicore {
 
-// -------------------------------------------------------
-// PatchCoreNode — PatchCore 算法推理节点
-// 职责：将输入图像通过 backbone 提取局部特征，与 MemoryBank
-//       中存储的正常特征库做最近邻比对，输出异常热力图和评分
-// 典型使用场景：作为视频分析管线中的一个 IProcessor 节点，
-//       接收 Frame 流，实时输出异常检测结果
-// -------------------------------------------------------
 class PatchCoreNode : public IProcessor {
 public:
-    // 初始化节点：加载 backbone 配置、MemoryBank 文件路径、
-    //             输入尺寸和异常判定阈值
     Status Init(const NodeConfig& config) override;
-    // 处理一帧图像：提取特征 → 比对记忆库 → 生成异常热力图
-    // @param inputs  输入帧列表（取第一帧的图像）
-    // @param outputs 输出帧列表（追加一帧，含 anomaly_score / is_anomaly）
     Status Process(const std::vector<Frame>& inputs,
                    std::vector<Frame>& outputs) override;
     std::string GetName() const override { return name_; }
     std::string GetType() const override { return "patchcore"; }
 
 private:
+    struct TileKey {
+        int x, y, w, h;
+        bool operator==(const TileKey& o) const {
+            return x == o.x && y == o.y && w == o.w && h == o.h;
+        }
+    };
+    struct TileKeyHash {
+        size_t operator()(const TileKey& k) const {
+            return ((size_t)k.x << 0) ^ ((size_t)k.y << 16) ^ ((size_t)k.w << 32) ^ ((size_t)k.h << 48);
+        }
+    };
+
+    Status ProcessTile(const cv::Mat& img, const cv::Rect& roi,
+                       cv::Mat& tileMapOut);
+    using TileCache = std::unordered_map<TileKey, cv::Mat, TileKeyHash>;
+
     std::string name_;
     std::unique_ptr<IBackbone> backbone_;
     std::unique_ptr<IBackbone> gpuBackbone_;
     std::unique_ptr<IBackbone> cpuBackbone_;
     TieredMemoryBank memoryBank_;
+    std::unique_ptr<ThreadPool> threadPool_;
     int inputSize_ = 224;
     float anomalyThreshold_ = 0.5f;
-    int maxTileSize_ = 1024;                         // 大图分片尺寸 (<=0 禁用分片)
+    int maxTileSize_ = 1024;
+    int multiScale_ = 0;       // 多尺度推理 (0=禁用, 1=启用)
+    TileCache tileCache_;
 };
 
 } // namespace aicore

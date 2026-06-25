@@ -138,7 +138,7 @@ Status MemoryBank::Load(const std::string& path) {
 //   大规模场景可替换为 FAISS 库的近似最近邻搜索（IVF/HNSW）
 // -------------------------------------------------------
 size_t MemoryBank::NearestNeighbor(const std::vector<float>& query, float& distOut) const {
-    if (bank_.empty()) return 0;
+    if (bank_.empty()) { distOut = 0; return 0; }
     size_t bestIdx = 0;
     float bestDist = std::numeric_limits<float>::max();
     for (size_t i = 0; i < bank_.size(); i++) {

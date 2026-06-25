@@ -37,7 +37,7 @@ public:
     void WaitAll();
     // 获取工作线程数量
     // @return 线程数
-    size_t GetThreadCount() const { return workers_.size(); }
+    size_t GetThreadCount() const noexcept { return workers_.size(); }
     // 获取等待队列中的待处理任务数量
     // @return 待处理任务数
     size_t GetPendingCount() const;

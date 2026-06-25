@@ -65,6 +65,7 @@ static float L2Dist(const std::vector<float>& a, const std::vector<float>& b) {
 // -------------------------------------------------------
 std::vector<size_t> CoresetSampler::Sample(
     const std::vector<PatchFeature>& pool, size_t targetSize) {
+    if (targetSize == 0) return {};
     if (pool.empty() || targetSize >= pool.size()) {
         std::vector<size_t> all(pool.size());
         for (size_t i = 0; i < pool.size(); i++) all[i] = i;

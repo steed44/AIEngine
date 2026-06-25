@@ -19,7 +19,7 @@ public:
     static Scheduler& Instance();
 
     void SetPriority(PriorityMode mode);
-    PriorityMode GetPriority() const { return priorityMode_.load(); }
+    PriorityMode GetPriority() const noexcept { return priorityMode_.load(); }
 
     bool InferenceUseGPU() const;   // 推理 backbone 是否用 GPU
     bool TrainingUseGPU() const;    // 训练 backbone 是否用 GPU
@@ -30,7 +30,7 @@ public:
     // @return 选中的设备 ID
     int SelectDevice();
     // 获取可用 GPU 数量
-    int DeviceCount() const { return deviceCount_.load(); }
+    int DeviceCount() const noexcept { return deviceCount_.load(); }
 
 private:
     Scheduler();

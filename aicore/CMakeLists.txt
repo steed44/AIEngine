@@ -27,7 +27,6 @@ set(CMAKE_CUDA_STANDARD_REQUIRED ON)
 
 find_package(OpenCV 4.7.0 REQUIRED)
 find_package(CUDAToolkit REQUIRED)
-find_package(GTest REQUIRED)
 
 # Python3 嵌入支持（PythonEmbedding、PythonTrainer）
 find_package(Python3 REQUIRED COMPONENTS Interpreter Development)

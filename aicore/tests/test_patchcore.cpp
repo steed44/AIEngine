@@ -17,6 +17,7 @@
 #include <filesystem>
 #include <fstream>
 #include <set>
+#include <chrono>
 
 using namespace aicore;
 
@@ -443,4 +444,306 @@ TEST(PatchCoreVisualizeTest, DrawOverlayZeroThreshold) {
 
     cv::Mat overlay = DrawAnomalyOverlay(scoreMap, image, 1.0f, 0.0f);
     EXPECT_EQ(overlay.type(), CV_8UC3);
+}
+
+// ─── Edge Cases ─────────────────────────────────────────────
+
+TEST(MemoryBankEdgeTest, EmptyBankNearestNeighbor) {
+    MemoryBank bank;
+    float dist = -1;
+    size_t idx = bank.NearestNeighbor({1, 2, 3}, dist);
+    EXPECT_EQ(idx, 0);
+    EXPECT_FLOAT_EQ(dist, 0);
+}
+
+TEST(MemoryBankEdgeTest, EmptyBankAnomalyMap) {
+    MemoryBank bank;
+    std::vector<PatchFeature> queries;
+    PatchFeature pf;
+    pf.features = {1, 2};
+    pf.patchRow = 0; pf.patchCol = 0;
+    queries.push_back(pf);
+    auto result = bank.ComputeAnomalyMap(queries, 4, 4);
+    ASSERT_EQ(result.size(), 16u);
+    for (float v : result)
+        EXPECT_FLOAT_EQ(v, 0);
+}
+
+TEST(MemoryBankEdgeTest, EmptyQueryAnomalyMap) {
+    MemoryBank bank;
+    std::vector<PatchFeature> features;
+    PatchFeature pf;
+    pf.features = {1, 2};
+    features.push_back(pf);
+    bank.Build(features);
+
+    std::vector<PatchFeature> emptyQ;
+    auto result = bank.ComputeAnomalyMap(emptyQ, 4, 4);
+    EXPECT_TRUE(result.empty());
+}
+
+TEST(MemoryBankEdgeTest, BuildEmptyFeatures) {
+    MemoryBank bank;
+    bank.Build({});
+    EXPECT_EQ(bank.Size(), 0);
+    EXPECT_EQ(bank.FeatureDim(), 0);
+}
+
+TEST(MemoryBankEdgeTest, ClearIdempotent) {
+    MemoryBank bank;
+    bank.Clear();
+    bank.Clear();
+    bank.Clear();
+    EXPECT_EQ(bank.Size(), 0);
+}
+
+TEST(CoresetSamplerEdgeTest, ZeroTargetSample) {
+    std::vector<PatchFeature> pool;
+    for (int i = 0; i < 10; i++) {
+        PatchFeature pf;
+        pf.features = {float(i)};
+        pool.push_back(pf);
+    }
+    CoresetSampler sampler;
+    auto indices = sampler.Sample(pool, 0);
+    EXPECT_TRUE(indices.empty());
+}
+
+TEST(CoresetSamplerEdgeTest, ZeroTargetFastSample) {
+    std::vector<PatchFeature> pool;
+    for (int i = 0; i < 10; i++) {
+        PatchFeature pf;
+        pf.features = {float(i)};
+        pool.push_back(pf);
+    }
+    CoresetSampler sampler;
+    auto indices = sampler.FastSample(pool, 0);
+    EXPECT_TRUE(indices.empty());
+}
+
+TEST(CoresetSamplerEdgeTest, SingleElementPool) {
+    std::vector<PatchFeature> pool;
+    PatchFeature pf;
+    pf.features = {42};
+    pool.push_back(pf);
+    CoresetSampler sampler;
+    auto indices = sampler.Sample(pool, 1);
+    ASSERT_EQ(indices.size(), 1);
+    EXPECT_EQ(indices[0], 0);
+}
+
+TEST(EvaluatorEdgeTest, SingleAnomaly) {
+    AnomalyEvaluator eval;
+    eval.AddSample(1, 0.9f);
+    auto r = eval.Evaluate();
+    EXPECT_DOUBLE_EQ(r.auc, 0.0);
+    EXPECT_EQ(r.tp, 0); // 单类时 Evaluate 返回空结果
+}
+
+TEST(EvaluatorEdgeTest, AllSameScore) {
+    AnomalyEvaluator eval;
+    eval.AddSample(1, 0.5f);
+    eval.AddSample(0, 0.5f);
+    auto r = eval.Evaluate();
+    EXPECT_NEAR(r.bestF1, 0.667, 0.01);
+}
+
+TEST(VisualizeEdgeTest, SinglePixelMap) {
+    cv::Mat scoreMap(1, 1, CV_32F, cv::Scalar(1.0f));
+    cv::Mat colored = ColorizeAnomalyMap(scoreMap);
+    EXPECT_EQ(colored.total(), 1);
+    EXPECT_EQ(colored.type(), CV_8UC3);
+}
+
+TEST(VisualizeEdgeTest, MismatchedSizeOverlay) {
+    cv::Mat scoreMap(4, 4, CV_32F, cv::Scalar(0.5f));
+    cv::Mat image(8, 8, CV_8UC3, cv::Scalar(128, 128, 128));
+    EXPECT_ANY_THROW(DrawAnomalyOverlay(scoreMap, image));
+}
+
+// ─── #5 模拟端到端集成 ─────────────────────────────────────
+
+TEST(IntegrationTest, PipelineSimulated) {
+    std::vector<PatchFeature> allFeatures;
+    for (int i = 0; i < 1000; i++) {
+        PatchFeature pf;
+        pf.features = {static_cast<float>(i), static_cast<float>(i % 50), 0};
+        pf.layerIdx = 0;
+        pf.patchRow = i / 32;
+        pf.patchCol = i % 32;
+        allFeatures.push_back(pf);
+    }
+
+    CoresetSampler sampler;
+    auto indices = sampler.FastSample(allFeatures, 100);
+    ASSERT_EQ(indices.size(), 100);
+
+    std::vector<PatchFeature> sampled;
+    for (auto idx : indices) sampled.push_back(allFeatures[idx]);
+
+    MemoryBank bank;
+    bank.Build(sampled);
+    EXPECT_EQ(bank.Size(), 100);
+    ASSERT_TRUE(bank.Save("test_e2e.bin"));
+
+    MemoryBank loaded;
+    ASSERT_TRUE(loaded.Load("test_e2e.bin"));
+    EXPECT_EQ(loaded.Size(), 100);
+
+    std::vector<PatchFeature> queries;
+    for (int r = 0; r < 4; r++)
+        for (int c = 0; c < 4; c++) {
+            PatchFeature q;
+            q.features = {50, 25, 0};
+            q.layerIdx = 0; q.patchRow = r; q.patchCol = c;
+            queries.push_back(q);
+        }
+    auto anomalyMap = loaded.ComputeAnomalyMap(queries, 32, 32);
+    ASSERT_EQ(anomalyMap.size(), 1024u);
+
+    double sum = 0;
+    for (float v : anomalyMap) sum += v;
+    EXPECT_GT(sum, 0);
+
+    std::remove("test_e2e.bin");
+}
+
+TEST(IntegrationTest, TrainSaveLoadEvaluate) {
+    CoresetSampler sampler;
+    std::vector<PatchFeature> normalPool;
+    for (int i = 0; i < 500; i++) {
+        PatchFeature pf;
+        pf.features = {0.1f * (i % 10), 0.1f * (i / 10), 0};
+        normalPool.push_back(pf);
+    }
+    auto idx = sampler.FastSample(normalPool, 50);
+    std::vector<PatchFeature> sampled;
+    for (auto i : idx) sampled.push_back(normalPool[i]);
+
+    MemoryBank bank;
+    bank.Build(sampled);
+    ASSERT_TRUE(bank.Save("test_e2e_eval.bin"));
+
+    MemoryBank loaded;
+    ASSERT_TRUE(loaded.Load("test_e2e_eval.bin"));
+
+    AnomalyEvaluator evaluator;
+    for (int i = 0; i < 20; i++) {
+        PatchFeature q;
+        q.features = {0.1f * (i % 10), 0.1f * (i / 10 % 10), 0};
+        float dist = 0;
+        loaded.NearestNeighbor(q.features, dist);
+        evaluator.AddSample(0, dist);
+    }
+    for (int i = 0; i < 20; i++) {
+        PatchFeature q;
+        q.features = {100 + 0.1f * i, 200 + 0.1f * i, 0};
+        float dist = 0;
+        loaded.NearestNeighbor(q.features, dist);
+        evaluator.AddSample(1, dist);
+    }
+    auto result = evaluator.Evaluate();
+    EXPECT_GT(result.auc, 0.8);
+    EXPECT_GT(result.bestF1, 0.8);
+
+    std::remove("test_e2e_eval.bin");
+}
+
+// ─── #6 性能基准测试 ────────────────────────────────────────
+
+TEST(BenchmarkTest, NearestNeighborScaling) {
+    const int dims = 64;
+    for (int size : {100, 500, 2000}) {
+        std::vector<PatchFeature> features;
+        for (int i = 0; i < size; i++) {
+            PatchFeature pf;
+            pf.features.resize(dims);
+            for (int d = 0; d < dims; d++)
+                pf.features[d] = static_cast<float>((i * 31 + d * 17) % 100);
+            features.push_back(pf);
+        }
+        MemoryBank bank;
+        bank.Build(features);
+
+        std::vector<float> query(dims, 42);
+        auto t0 = std::chrono::high_resolution_clock::now();
+        for (int iter = 0; iter < 100; iter++) {
+            float dist;
+            bank.NearestNeighbor(query, dist);
+        }
+        auto t1 = std::chrono::high_resolution_clock::now();
+        auto ms = std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count() / 100.0;
+        // 2000 维 64 维 × 100 次应在 50ms 以内
+        EXPECT_LT(ms, 50000.0);
+    }
+}
+
+TEST(BenchmarkTest, ComputeAnomalyMapScaling) {
+    std::vector<PatchFeature> features;
+    for (int i = 0; i < 500; i++) {
+        PatchFeature pf;
+        pf.features = {float(i), float(i % 10), 0};
+        features.push_back(pf);
+    }
+    MemoryBank bank;
+    bank.Build(features);
+
+    std::vector<PatchFeature> queries;
+    for (int r = 0; r < 8; r++)
+        for (int c = 0; c < 8; c++) {
+            PatchFeature q;
+            q.features = {50, 25, 0};
+            q.patchRow = r; q.patchCol = c;
+            queries.push_back(q);
+        }
+
+    auto t0 = std::chrono::high_resolution_clock::now();
+    auto result = bank.ComputeAnomalyMap(queries, 256, 256);
+    auto t1 = std::chrono::high_resolution_clock::now();
+    auto ms = std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count() / 1000.0;
+    ASSERT_EQ(result.size(), 65536u);
+    EXPECT_LT(ms, 5000.0);
+}
+
+TEST(BenchmarkTest, FastSampleScaling) {
+    std::vector<PatchFeature> pool;
+    for (int i = 0; i < 50000; i++) {
+        PatchFeature pf;
+        pf.features = {float(i), float(i % 1000)};
+        pool.push_back(pf);
+    }
+    CoresetSampler sampler;
+    auto t0 = std::chrono::high_resolution_clock::now();
+    auto indices = sampler.FastSample(pool, 100);
+    auto t1 = std::chrono::high_resolution_clock::now();
+    auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
+    EXPECT_EQ(indices.size(), 100);
+    EXPECT_LT(ms, 10000); // 10s 上限
+}
+
+TEST(BenchmarkTest, SaveLoadThroughput) {
+    std::vector<PatchFeature> features;
+    for (int i = 0; i < 2000; i++) {
+        PatchFeature pf;
+        pf.features = {float(i), float(i * 2), float(i * 3)};
+        features.push_back(pf);
+    }
+    MemoryBank bank;
+    bank.Build(features);
+
+    auto t0 = std::chrono::high_resolution_clock::now();
+    ASSERT_TRUE(bank.Save("test_bench.bin"));
+    auto t1 = std::chrono::high_resolution_clock::now();
+
+    MemoryBank loaded;
+    ASSERT_TRUE(loaded.Load("test_bench.bin"));
+    auto t2 = std::chrono::high_resolution_clock::now();
+
+    auto saveMs = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
+    auto loadMs = std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count();
+    EXPECT_EQ(loaded.Size(), 2000);
+    EXPECT_LT(saveMs, 1000);
+    EXPECT_LT(loadMs, 1000);
+
+    std::remove("test_bench.bin");
 }

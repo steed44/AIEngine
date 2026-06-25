@@ -1,0 +1,53 @@
+{
+  "version": 6,
+  "configurePresets": [
+    {
+      "name": "default",
+      "displayName": "VS 2022 (x64) - Debug",
+      "description": "默认 Debug 构建，需要 $env:OPENCV_DIR, $env:QT5_DIR, $env:LIBTORCH_DIR",
+      "generator": "Visual Studio 17 2022",
+      "architecture": "x64",
+      "binaryDir": "${sourceDir}/out/build",
+      "cacheVariables": {
+        "OpenCV_DIR": "$env{OPENCV_DIR}",
+        "CMAKE_PREFIX_PATH": "$env{QT5_DIR}",
+        "Torch_DIR": "$env{LIBTORCH_DIR}/share/cmake/Torch"
+      }
+    },
+    {
+      "name": "release",
+      "displayName": "VS 2022 (x64) - Release",
+      "description": "Release 构建",
+      "inherits": "default",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "debug",
+      "configurePreset": "default",
+      "configuration": "Debug"
+    },
+    {
+      "name": "release",
+      "configurePreset": "release",
+      "configuration": "Release"
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "debug",
+      "configurePreset": "default",
+      "configuration": "Debug",
+      "output": {"outputOnFailure": true}
+    },
+    {
+      "name": "release",
+      "configurePreset": "release",
+      "configuration": "Release",
+      "output": {"outputOnFailure": true}
+    }
+  ]
+}

@@ -64,7 +64,11 @@ std::unique_ptr<IModelBackend> BackendFactory::Create(BackendType type) {
     case BackendType::kTensorRT:
         return std::make_unique<TensorRTBackendStub>();
     case BackendType::kONNXRuntime:
+#ifdef AICORE_USE_ONNXRUNTIME
+        return CreateONNXRuntimeBackend();
+#else
         return std::make_unique<ONNXRuntimeBackendStub>();
+#endif
     case BackendType::kLibTorch:
         return std::make_unique<LibTorchBackendStub>();
     default:

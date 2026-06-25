@@ -70,9 +70,9 @@ AIEngine/
 | Visual Studio | 2022 (v143) |
 | CMake | ≥ 3.20 |
 | C++ 标准 | C++17 |
-| OpenCV | 4.10.0（通过 vcpkg 安装） |
+| OpenCV | 4.10.0（官方预编译包） |
 | Qt 5 | 5.12.11（msvc2017_64） |
-| GTest | 1.16.0（通过 vcpkg 安装） |
+| GTest | 1.16.0（CMake FetchContent 自动拉取） |
 | LibTorch | 2.5.1 CUDA 11.8（可选，GPU backbone） |
 | CUDA | 11.8（可选，TensorRT/GPU 后端） |
 
@@ -83,8 +83,8 @@ AIEngine/
 设置环境变量（路径按实际安装位置调整）：
 
 ```powershell
-$env:VCPKG_ROOT = "D:/work/vcpkg/vcpkg"
-$env:QT5_DIR    = "C:/Qt/Qt5.12.11/5.12.11/msvc2017_64"
+$env:OPENCV_DIR   = "D:/opencv/build"        # OpenCV 预编译包路径
+$env:QT5_DIR      = "C:/Qt/Qt5.12.11/5.12.11/msvc2017_64"
 $env:LIBTORCH_DIR = "D:/libtorch/libtorch"
 ```
 
@@ -115,8 +115,7 @@ ctest --preset debug
 
 ```powershell
 cmake -S . -B out/build -G "Visual Studio 17 2022" `
-  -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" `
-  -DOpenCV_DIR="$env:VCPKG_ROOT/installed/x64-windows/share/opencv4" `
+  -DOpenCV_DIR="$env:OPENCV_DIR" `
   -DCMAKE_PREFIX_PATH="$env:QT5_DIR" `
   -DTorch_DIR="$env:LIBTORCH_DIR/share/cmake/Torch"
 
