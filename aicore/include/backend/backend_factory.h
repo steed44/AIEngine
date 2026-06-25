@@ -17,6 +17,10 @@ public:
     static std::unique_ptr<IModelBackend> Create(BackendType type);
 };
 
+// ONNX Runtime 后端创建函数（条件编译）
 std::unique_ptr<IModelBackend> CreateONNXRuntimeBackend();
+
+// LibTorch 后端创建函数（条件编译）
+std::unique_ptr<IModelBackend> CreateLibTorchBackend();
 
 } // namespace aicore

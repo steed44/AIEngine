@@ -240,7 +240,9 @@ Status PatchCoreNode::Process(const std::vector<Frame>& inputs,
                     try {
                         gpuBackbone_->Extract(src);
                         return gpuBackbone_.get();
-                    } catch (const std::runtime_error&) {}
+                    } catch (const std::runtime_error&) {
+                        // 静默降级：GPU 提取失败时回退 CPU backbone
+                    }
                 }
                 if (cpuBackbone_) return cpuBackbone_.get();
                 return backbone_.get();

@@ -1,8 +1,5 @@
 // ============================================================
-// libtorch_backend.cpp — LibTorch (PyTorch C++) 后端实现
-// 使用 libtorch 库加载 .pt / .pth 模型并执行 GPU/CPU 推理
-// 待实现：模型加载、张量转换、前向推理、形状查询
+// libtorch_backend.cpp — LibTorch 后端实现
+// 已内联至 backend_factory.cpp 以解决跨翻译单元链接问题
+// 保留此文件作为未来独立编译的占位
 // ============================================================
-
-// TODO: implement
-

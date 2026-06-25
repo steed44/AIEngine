@@ -110,8 +110,10 @@ public:
                 t.shape.assign(shape.begin(), shape.end());
                 t.bytes = count * sizeof(float);
                 t.memory = MemoryType::kCPU;
-                t.data = new float[count];
-                std::memcpy(t.data, ortOut.GetTensorData<float>(), t.bytes);
+                auto* buf = new float[count];
+                std::memcpy(buf, ortOut.GetTensorData<float>(), t.bytes);
+                t.data = buf;
+                t.allocId = 1;  // 标记为 backend 分配，需调用方释放
                 outputs.push_back(t);
             }
 

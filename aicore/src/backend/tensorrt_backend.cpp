@@ -1,8 +1,4 @@
 // ============================================================
-// tensorrt_backend.cpp — NVIDIA TensorRT 后端实现
-// 使用 TensorRT 的 C++ API 加载 .engine / .onnx 序列化引擎并推理
-// 待实现：引擎反序列化、执行上下文创建、GPU 内存管理、形状查询
+// tensorrt_backend.cpp — TensorRT 后端占位
+// TensorRT 实现尚未完成，保留此文件供未来扩展
 // ============================================================
-
-// TODO: implement
-

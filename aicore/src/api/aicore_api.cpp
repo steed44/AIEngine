@@ -172,6 +172,7 @@ const char* aicore_result_to_json(AICoreResult result) {
  * @param result 要释放的结果句柄
  */
 void aicore_result_free(AICoreResult result) {
+    if (!result) return;
     delete static_cast<Result*>(result);
 }
 
@@ -203,6 +204,7 @@ void aicore_result_free_anomaly_map(float* data) {
  * @param pipeline 要销毁的管线句柄
  */
 void aicore_pipeline_destroy(AICorePipeline pipeline) {
+    if (!pipeline) return;
     delete static_cast<IPipeline*>(pipeline);
 }
 
