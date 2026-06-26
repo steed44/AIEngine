@@ -2,12 +2,19 @@
 // multi_roi_node.cpp — 多 ROI PatchCore 推理节点实现
 // 功能：加载配置 → 加载各 ROI 模型 → 对输入大图执行
 //       多区域推理 → 在原图上叠加检测结果
+//
+// 支持两种模式：
+//   1. 固定坐标模式：从 config 加载固定 ROI 坐标
+//   2. 每图模式：通过 LoadPerImageRois() 动态加载 ROI 坐标
 // ============================================================
 #include "patchcore/multi_roi_node.h"
+#include "utils/draw_utils.h"
 #include <opencv2/imgproc.hpp>
 #include <opencv2/highgui.hpp>
 #include <iostream>
 #include <future>
+#include <filesystem>
+#include <string>
 
 namespace aicore {
 
@@ -83,6 +90,54 @@ Status MultiRoiNode::Init(const NodeConfig& config) {
                       << " stays on CPU tier (" << promoteStatus.message << ")"
                       << std::endl;
         }
+    }
+
+    return Status{};
+}
+
+// -------------------------------------------------------
+// 动态加载 per-image ROI 坐标
+// 根据图片文件名找到对应的 JSON，加载 ROI 坐标但不加载模型
+// 模型仍从 config_.modelDir/{id}.bin 加载
+// -------------------------------------------------------
+Status MultiRoiNode::LoadPerImageRois(const std::string& imageFilename,
+                                      const std::string& roisDir) {
+    namespace fs = std::filesystem;
+    std::string stem = fs::path(imageFilename).stem().string();
+    std::string roiJsonPath = roisDir + "/" + stem + ".json";
+
+    PerImageRoiConfig picRois;
+    auto s = PerImageRoiConfig::FromJson(roiJsonPath, picRois);
+    if (!s) {
+        return Status{StatusCode::ErrorConfigParse,
+            "cannot load per-image ROI config: " + roiJsonPath +
+            " (" + s.message + ")"};
+    }
+
+    // 清除旧的 slots
+    slots_.clear();
+
+    // 为每个 ROI 创建 slot，加载对应的 MemoryBank
+    for (const auto& roi : picRois.rois) {
+        RoiModelSlot slot;
+        slot.roiId = roi.id;
+        slot.rect = cv::Rect(roi.x, roi.y, roi.w, roi.h);
+        slot.anomalyThreshold = config_.anomalyThreshold;
+
+        std::string bankPath = config_.modelDir + "/" + roi.id + ".bin";
+        auto loadStatus = slot.memoryBank.Load(bankPath);
+        if (!loadStatus) {
+            return Status{StatusCode::ErrorModelLoad,
+                "multi_roi: cannot load memory bank: " + bankPath +
+                " (" + loadStatus.message + ")"};
+        }
+
+        slots_.push_back(std::move(slot));
+    }
+
+    if (slots_.empty()) {
+        return Status{StatusCode::ErrorConfigParse,
+            "no ROIs found for image: " + imageFilename};
     }
 
     return Status{};
@@ -165,7 +220,7 @@ Status MultiRoiNode::Process(const std::vector<Frame>& inputs,
         out.roiMap["roi_" + slot.roiId + "_score"] = score;
         out.roiMap["roi_" + slot.roiId + "_anomaly"] = isAnomaly ? 1.0f : 0.0f;
         if (drawOverlay_) {
-            DrawRoiOverlay(out.image, slot, score);
+            DrawRoiAnomaly(out.image, slot.rect, slot.roiId, score, isAnomaly);
         }
     }
 
@@ -220,51 +275,6 @@ Status MultiRoiNode::ProcessOneRoi(const cv::Mat& fullImage,
     outHeatmap = cv::Mat(roiImg.rows, roiImg.cols, CV_32F, anomalyMap.data()).clone();
 
     return Status{};
-}
-
-// -------------------------------------------------------
-// 在大图上绘制 ROI 检测结果
-//
-// 绘制内容：
-//   1. ROI 矩形框：阀值线框，绿色（正常）或 红色（异常）
-//   2. ROI ID + 异常得分标签
-//   3. 半透明热力图叠加（更直观显示异常区域位置）
-// -------------------------------------------------------
-void MultiRoiNode::DrawRoiOverlay(cv::Mat& image,
-                                   const RoiModelSlot& slot,
-                                   float score) {
-    bool isAnomaly = score > slot.anomalyThreshold;
-
-    // ---- 1. 选择框颜色 ----
-    // 正常 = 绿色 (0, 255, 0)，异常 = 红色 (0, 0, 255)
-    cv::Scalar color = isAnomaly
-        ? cv::Scalar(0, 0, 255)
-        : cv::Scalar(0, 255, 0);
-
-    // ---- 2. 绘制 ROI 矩形框 ----
-    cv::rectangle(image, slot.rect, color, 2);
-
-    // ---- 3. 绘制标签 ----
-    std::string label = slot.roiId + ": " +
-        (isAnomaly ? "NG " : "OK ") +
-        std::to_string(static_cast<int>(score * 100)) + "%";
-
-    int baseline = 0;
-    cv::Size textSize = cv::getTextSize(label, cv::FONT_HERSHEY_SIMPLEX,
-                                         0.5, 1, &baseline);
-    cv::Point labelPos(slot.rect.x, slot.rect.y - 5);
-    if (labelPos.y < textSize.height) {
-        labelPos.y = slot.rect.y + slot.rect.height + textSize.height + 5;
-    }
-
-    // 标签背景
-    cv::rectangle(image,
-                  cv::Point(labelPos.x, labelPos.y - textSize.height),
-                  cv::Point(labelPos.x + textSize.width, labelPos.y + baseline),
-                  color, cv::FILLED);
-    // 标签文字（黑色）
-    cv::putText(image, label, labelPos,
-                cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(0, 0, 0), 1);
 }
 
 } // namespace aicore

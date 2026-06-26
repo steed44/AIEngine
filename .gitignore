@@ -40,6 +40,8 @@ venv/
 # CMake try_compile debris (random 5-char temp dirs, but not actual source dirs)
 [a-zA-Z0-9][a-zA-Z0-9][a-zA-Z0-9][a-zA-Z0-9][a-zA-Z0-9]/
 !aicore/tests/
+!aicore/include/utils/
+!aicore/src/utils/
 
 # Test artifacts
 test_*.bin
