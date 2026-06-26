@@ -22,8 +22,10 @@
 #include "engine/thread_pool.h"
 #include <opencv2/imgproc.hpp>
 #include <future>
+#include "json.hpp"
 #include <cctype>
 #include <algorithm>
+#include <fstream>
 
 namespace aicore {
 
@@ -171,8 +173,22 @@ Status PatchCoreNode::Init(const NodeConfig& config) {
     auto is = config.find("input_size");
     if (is != config.end()) inputSize_ = std::stoi(is->second);
 
+    // 读取异常阈值：优先配置值，否则从训练输出的 .threshold.json 加载
     auto at = config.find("anomaly_threshold");
-    if (at != config.end()) anomalyThreshold_ = std::stof(at->second);
+    if (at != config.end()) {
+        anomalyThreshold_ = std::stof(at->second);
+    } else {
+        std::string jsonPath = memoryBankPath + ".threshold.json";
+        std::ifstream f(jsonPath);
+        if (f) {
+            try {
+                auto j = nlohmann::json::parse(f);
+                if (j.contains("anomaly_threshold")) {
+                    anomalyThreshold_ = j["anomaly_threshold"].get<float>();
+                }
+            } catch (...) { }
+        }
+    }
 
     auto ts = config.find("max_tile_size");
     if (ts != config.end()) maxTileSize_ = std::stoi(ts->second);
@@ -198,7 +214,6 @@ Status PatchCoreNode::Init(const NodeConfig& config) {
  *   2. 选择最佳 backbone（GPU → CPU → 默认）
  *   3. 提取 patch 级特征
  *   4. MemoryBank 最近邻搜索，计算异常距离图
- *   5. 缓存到 tileCache_，避免重复计算
  *
  * @param img 完整图像
  * @param roi ROI 区域坐标
@@ -208,15 +223,10 @@ Status PatchCoreNode::ProcessTile(const cv::Mat& img, const cv::Rect& roi,
                                    cv::Mat& tileMapOut) {
     cv::Mat tile = img(roi);
 
-    // 选择最佳 backbone：优先 GPU，失败则降级到 CPU
+    // 选择最佳 backbone：优先 GPU
     auto pickBackbone = [&]() -> IBackbone* {
         if (Scheduler::Instance().InferenceUseGPU() && gpuBackbone_) {
-            try {
-                gpuBackbone_->Extract(tile);
-                return gpuBackbone_.get();
-            } catch (const std::runtime_error&) {
-                // 静默降级：GPU 提取失败时回退 CPU backbone
-            }
+            return gpuBackbone_.get();
         }
         if (cpuBackbone_) return cpuBackbone_.get();
         return backbone_.get();
@@ -235,10 +245,6 @@ Status PatchCoreNode::ProcessTile(const cv::Mat& img, const cv::Rect& roi,
             "patchcore: anomaly map empty"};
     }
 
-    // 缓存到 tileCache_，key 为 ROI 坐标
-    TileKey key{roi.x, roi.y, roi.width, roi.height};
-    tileCache_[key] = tileMapOut.clone();
-    tileCache_[key] = tileMapOut.clone();
     return Status{};
 }
 
@@ -279,12 +285,7 @@ Status PatchCoreNode::Process(const std::vector<Frame>& inputs,
     if (!needsTiling && multiScale_ == 0) {
         auto pickBackbone = [&]() -> IBackbone* {
             if (Scheduler::Instance().InferenceUseGPU() && gpuBackbone_) {
-                try {
-                    gpuBackbone_->Extract(img);
-                    return gpuBackbone_.get();
-                } catch (const std::runtime_error&) {
-                    // 静默降级：GPU 提取失败时回退 CPU backbone
-                }
+                return gpuBackbone_.get();
             }
             if (cpuBackbone_) return cpuBackbone_.get();
             return backbone_.get();
@@ -304,7 +305,6 @@ Status PatchCoreNode::Process(const std::vector<Frame>& inputs,
     }
     // 策略2：分片处理（大图像）
     else if (needsTiling) {
-        tileCache_.clear();
         fullMap = cv::Mat::zeros(img.rows, img.cols, CV_32F);
 
         int tileH = std::min(maxTileSize_, img.rows);
@@ -396,7 +396,6 @@ Status PatchCoreNode::Process(const std::vector<Frame>& inputs,
     }
     // 策略4：不分片 + 多尺度（图像金字塔）
     else {
-        tileCache_.clear();
         fullMap = cv::Mat::zeros(img.rows, img.cols, CV_32F);
 
         const float scales[] = {1.0f, 0.75f, 0.5f};
@@ -410,12 +409,7 @@ Status PatchCoreNode::Process(const std::vector<Frame>& inputs,
 
             auto pickBackbone = [&]() -> IBackbone* {
                 if (Scheduler::Instance().InferenceUseGPU() && gpuBackbone_) {
-                    try {
-                        gpuBackbone_->Extract(src);
-                        return gpuBackbone_.get();
-                    } catch (const std::runtime_error&) {
-                        // 静默降级：GPU 提取失败时回退 CPU backbone
-                    }
+                    return gpuBackbone_.get();
                 }
                 if (cpuBackbone_) return cpuBackbone_.get();
                 return backbone_.get();

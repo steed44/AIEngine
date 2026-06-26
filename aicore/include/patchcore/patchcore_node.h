@@ -6,7 +6,6 @@
 #include <string>
 #include <vector>
 #include <memory>
-#include <unordered_map>
 #include "engine/thread_pool.h"
 
 namespace aicore {
@@ -25,7 +24,6 @@ namespace aicore {
  *   - 大图像自动分片：超过 maxTileSize_ 的图像切分为 tile
  *   - 多线程并行：ThreadPool 并行处理各 tile
  *   - 多尺度推理：图像金字塔 1.0/0.75/0.5，max-fusion
- *   - Tile Cache：帧内重复 ROI 避免重复计算
  *   - GPU 自动降级：GPU 提取失败时回退 CPU
  *   - FAISS 近似最近邻搜索：IVF/HNSW/BruteForce 三种算法可选
  *   - FAISS 自动降级：索引文件损坏或构建失败时回退暴力搜索
@@ -61,27 +59,6 @@ public:
 
 private:
     /**
-     * TileKey — 分片唯一标识
-     * 由 ROI 坐标 (x, y, w, h) 组成，用于 tileCache_ 的 key。
-     */
-    struct TileKey {
-        int x, y, w, h;
-        bool operator==(const TileKey& o) const {
-            return x == o.x && y == o.y && w == o.w && h == o.h;
-        }
-    };
-
-    /**
-     * TileKeyHash — TileKey 的哈希函数
-     * 将 4 个 int 的位组合成一个 size_t，用于 unordered_map。
-     */
-    struct TileKeyHash {
-        size_t operator()(const TileKey& k) const {
-            return ((size_t)k.x << 0) ^ ((size_t)k.y << 16) ^ ((size_t)k.w << 32) ^ ((size_t)k.h << 48);
-        }
-    };
-
-    /**
      * 处理单个图像分片
      * @param img 完整图像
      * @param roi ROI 区域坐标
@@ -89,9 +66,6 @@ private:
      */
     Status ProcessTile(const cv::Mat& img, const cv::Rect& roi,
                        cv::Mat& tileMapOut);
-
-    /** Tile 缓存：key=ROI 坐标，value=异常热力图 */
-    using TileCache = std::unordered_map<TileKey, cv::Mat, TileKeyHash>;
 
     // 搜索分发：暴力搜索走 memoryBank_，FAISS 模式走 faissBridge_
     cv::Mat DispatchAnomalyMap(const std::vector<PatchFeature>& features,
@@ -108,8 +82,6 @@ private:
     float anomalyThreshold_ = 0.5f;                 // 异常判定阈值（>阈值则标记为异常）
     int maxTileSize_ = 1024;                        // 分片最大尺寸（0=不分片）
     int multiScale_ = 0;                            // 多尺度推理开关（1=启用图像金字塔）
-    TileCache tileCache_;                           // tile 缓存：key=ROI坐标，value=异常热力图
-
     // FAISS 近似最近邻搜索（可选，默认 BruteForce）
     std::unique_ptr<FaissIndexBridge> faissBridge_; // FAISS 桥接层
     FaissSearchAlgorithm searchAlgo_ = FaissSearchAlgorithm::BruteForce;

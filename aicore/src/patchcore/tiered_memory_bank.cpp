@@ -360,12 +360,12 @@ std::vector<float> TieredMemoryBank::ComputeOnCPU(
         if (maxRow == 0 || maxCol == 0) return {};
 
         cv::Mat scoreMap(maxRow, maxCol, CV_32F);
-        // OpenMP 并行：每个 query 的 NN 搜索独立，可并行归约
-        // #pragma omp parallel for schedule(dynamic, 16)
-        //   - 动态分块 16：每个线程处理 16 个 queries，负载均衡
-        //   - scoreMap 写入不同行/列，无数据竞争
-        // NOTE: 当前注释掉，编译时需确认 OpenMP 可用后再启用
-        for (auto& q : queries) {
+        // OpenMP 并行：每个 query 的 NN 搜索独立（写入不同行列，无竞争）
+#ifdef _OPENMP
+        #pragma omp parallel for schedule(dynamic, 16)
+#endif
+        for (int qi = 0; qi < static_cast<int>(queries.size()); qi++) {
+            const auto& q = queries[qi];
             float bestDist = std::numeric_limits<float>::max();
             for (int i = 0; i < num_; i++) {
                 const float* bankFeat = MmapFeatureAt(mmapPtr_, i, dim_);
@@ -400,8 +400,11 @@ std::vector<float> TieredMemoryBank::ComputeOnCPU(
 
         cv::Mat layerMap(maxRow, maxCol, CV_32F);
         // OpenMP 并行：每层内 query 间 NN 搜索独立
-        // #pragma omp parallel for schedule(dynamic, 16)
-        for (auto& q : queries) {
+#ifdef _OPENMP
+        #pragma omp parallel for schedule(dynamic, 16)
+#endif
+        for (int qi = 0; qi < static_cast<int>(queries.size()); qi++) {
+            const auto& q = queries[qi];
             if (q.layerIdx != li) continue;
             float bestDist = std::numeric_limits<float>::max();
             for (int i = 0; i < num_; i++) {

@@ -142,23 +142,37 @@ size_t MemoryBank::NearestNeighbor(const std::vector<float>& query, float& distO
     size_t bestIdx = 0;
     float bestDist = std::numeric_limits<float>::max();
 
-    // OpenMP 并行：每个 bank entry 的 L2 距离计算独立，可并行归约
-    // #pragma omp parallel for reduction(min:bestDist) schedule(dynamic, 256)
-    //   - reduction(min:bestDist) 各线程局部 bestDist 取最小值后合并
-    //   - schedule(dynamic, 256) 动态分块，避免长尾效应
-    // NOTE: 当前注释掉，编译时需确认 OpenMP 可用后再启用
-    // #pragma omp parallel for reduction(min:bestDist) schedule(dynamic, 256)
+    // OpenMP 并行：每个 bank entry 的 L2 距离计算独立
+    // 使用 thread-local 变量避免 MSVC OpenMP 2.0 不支持 float reduction 的问题
+#ifdef _OPENMP
+    #pragma omp parallel
+    {
+        float localBest = std::numeric_limits<float>::max();
+        size_t localIdx = 0;
+        #pragma omp for
+        for (int i = 0; i < static_cast<int>(bank_.size()); i++) {
+            float d = 0;
+            const auto& feat = bank_[i].features;
+            for (int j = 0; j < featureDim_; j++) {
+                float diff = query[j] - feat[j];
+                d += diff * diff;
+            }
+            if (d < localBest) { localBest = d; localIdx = i; }
+        }
+        #pragma omp critical
+        { if (localBest < bestDist) { bestDist = localBest; bestIdx = localIdx; } }
+    }
+#else
     for (size_t i = 0; i < bank_.size(); i++) {
         float d = 0;
+        const auto& feat = bank_[i].features;
         for (int j = 0; j < featureDim_; j++) {
-            float diff = query[j] - bank_[i].features[j];
+            float diff = query[j] - feat[j];
             d += diff * diff;
         }
-        if (d < bestDist) {
-            bestDist = d;
-            bestIdx = i;
-        }
+        if (d < bestDist) { bestDist = d; bestIdx = i; }
     }
+#endif
     distOut = std::sqrt(bestDist);
     return bestIdx;
 }

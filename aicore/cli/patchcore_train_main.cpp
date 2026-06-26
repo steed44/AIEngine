@@ -14,6 +14,11 @@ int main(int argc, char* argv[]) {
     int inputSize = 224;
     std::string layers = "layer2,layer3";
     std::string backbone = "opencv_dnn";
+    bool autoThreshold = false;
+    std::string thresholdMethod = "mean_ksigma";
+    float thresholdSigma = 3.0f;
+    float thresholdPercentile = 99.0f;
+    float thresholdSampleRatio = 1.0f;
 
     // ---- 1. 解析命令行参数 ----
     // 参数说明：
@@ -27,6 +32,11 @@ int main(int argc, char* argv[]) {
     //   --layers <names>       backbone 待提取的中间层名，逗号分隔（默认: layer2,layer3）
     //                          仅 libtorch 模式需要（.pt 模型已固定输出层时仍可省略）
     //   --coreset <frac>       Coreset 采样比例（默认: 0.1）
+    //   --auto-threshold       训练完后自动计算异常阈值（默认: 不计算）
+    //   --threshold-method <s> 阈值计算方法: max_score / mean_ksigma(默认) / percentile
+    //   --threshold-sigma <n>  MeanKSigma 法的 k 值（默认: 3.0）
+    //   --threshold-percentile <n>  Percentile 法的 p 值（默认: 99.0）
+    //   --threshold-sample-ratio <f>  阈值计算时训练集采样比例 0~1（默认: 1.0）
     for (int i = 1; i < argc; i++) {
         std::string arg = argv[i];
         if (arg == "--data" && i + 1 < argc) dataPath = argv[++i];
@@ -36,19 +46,31 @@ int main(int argc, char* argv[]) {
         else if (arg == "--input_size" && i + 1 < argc) inputSize = std::stoi(argv[++i]);
         else if (arg == "--layers" && i + 1 < argc) layers = argv[++i];
         else if (arg == "--coreset" && i + 1 < argc) coresetFrac = std::stod(argv[++i]);
+        else if (arg == "--auto-threshold") autoThreshold = true;
+        else if (arg == "--threshold-method" && i + 1 < argc) thresholdMethod = argv[++i];
+        else if (arg == "--threshold-sigma" && i + 1 < argc) thresholdSigma = std::stof(argv[++i]);
+        else if (arg == "--threshold-percentile" && i + 1 < argc) thresholdPercentile = std::stof(argv[++i]);
+        else if (arg == "--threshold-sample-ratio" && i + 1 < argc) thresholdSampleRatio = std::stof(argv[++i]);
     }
 
     // ---- 2. 检查必需参数 ----
     if (dataPath.empty() || modelPath.empty()) {
         std::cerr << "Usage: PatchCoreTrain --data <folder> --model <model> [options]\n"
-                  << "  --backbone <type>  Backbone type: opencv_dnn (default) | libtorch\n"
-                  << "  --output <path>    Memory bank output path (default: memory_bank.bin)\n"
-                  << "  --input_size <n>   Input image size (default: 224)\n"
-                  << "  --layers <names>   Backbone layer names (default: layer2,layer3)\n"
-                  << "  --coreset <frac>   Coreset fraction (default: 0.1)\n"
+                  << "  --backbone <type>       Backbone type: opencv_dnn (default) | libtorch\n"
+                  << "  --output <path>         Memory bank output path (default: memory_bank.bin)\n"
+                  << "  --input_size <n>        Input image size (default: 224)\n"
+                  << "  --layers <names>        Backbone layer names (default: layer2,layer3)\n"
+                  << "  --coreset <frac>        Coreset fraction (default: 0.1)\n"
+                  << "  --auto-threshold        Auto-compute anomaly threshold after training\n"
+                  << "  --threshold-method <s>  Threshold method: max_score / mean_ksigma / percentile\n"
+                  << "  --threshold-sigma <n>   Sigma for mean_ksigma (default: 3.0)\n"
+                  << "  --threshold-percentile <n>  Percentile for percentile method (default: 99.0)\n"
+                  << "  --threshold-sample-ratio <f>  Sample ratio for threshold calc (default: 1.0)\n"
                   << "Examples:\n"
                   << "  PatchCoreTrain --data ./good --model backbone.onnx\n"
-                  << "  PatchCoreTrain --data ./good --model backbone.pt --backbone libtorch\n";
+                  << "  PatchCoreTrain --data ./good --model backbone.pt --backbone libtorch\n"
+                  << "  PatchCoreTrain --data ./good --model backbone.onnx --auto-threshold\n"
+                  << "    --threshold-method percentile --threshold-percentile 95\n";
         return 1;
     }
 
@@ -65,6 +87,15 @@ int main(int argc, char* argv[]) {
     cfg.backboneLayers = layers;
     cfg.backboneType = backbone;  // 传递 backbone 类型给训练器
     cfg.coresetFraction = coresetFrac;
+    if (autoThreshold) {
+        cfg.computeThresholdFromTrainData = true;
+        if (thresholdMethod == "max_score") cfg.thresholdMethod = aicore::ThresholdMethod::MaxScore;
+        else if (thresholdMethod == "percentile") cfg.thresholdMethod = aicore::ThresholdMethod::Percentile;
+        // mean_ksigma 为默认
+        cfg.thresholdSigma = thresholdSigma;
+        cfg.thresholdPercentile = thresholdPercentile;
+        cfg.thresholdSampleRatio = thresholdSampleRatio;
+    }
 
     // ---- 5. 执行训练 ----
     aicore::PatchCoreTrainer trainer;
@@ -74,6 +105,9 @@ int main(int argc, char* argv[]) {
         return 1;
     }
     std::cout << "Memory bank saved to " << outputPath << std::endl;
+    if (autoThreshold) {
+        std::cout << "Threshold auto-computed, saved to " << outputPath << ".threshold.json" << std::endl;
+    }
     std::cout << "Total images processed." << std::endl;
     return 0;
 }

@@ -16,6 +16,15 @@ namespace aicore {
 using ProgressCallback = std::function<void(int current, int total, const std::string& status)>;
 
 // -------------------------------------------------------
+// ThresholdMethod — 自动阈值计算方法
+// -------------------------------------------------------
+enum class ThresholdMethod {
+    MaxScore,     // 使用训练集 anomaly score 最大值
+    MeanKSigma,   // 使用均值 + k * 标准差
+    Percentile    // 使用指定分位数
+};
+
+// -------------------------------------------------------
 // PatchCoreTrainConfig — 训练配置参数
 // -------------------------------------------------------
 struct AICORE_API PatchCoreTrainConfig {
@@ -27,6 +36,13 @@ struct AICORE_API PatchCoreTrainConfig {
     size_t maxFeatures = 100000;              // 最大特征数上限（超出时随机降采样）
     bool computeNormParams = true;            // 是否计算并保存特征归一化参数
     ProgressCallback onProgress = nullptr;    // 可选: 训练进度回调
+
+    // 自动阈值计算（训练完后用训练集正样本的 anomaly score 分布生成推荐阈值）
+    bool computeThresholdFromTrainData = false;            // 是否自动计算阈值
+    ThresholdMethod thresholdMethod = ThresholdMethod::MeanKSigma;  // 计算方法
+    float thresholdSigma = 3.0f;                           // MeanKSigma 法的 k 值
+    float thresholdPercentile = 99.0f;                     // Percentile 法的 p 值
+    float thresholdSampleRatio = 1.0f;                     // 训练集采样比例 (0~1)
 
     // FAISS 索引构建（可选）
     bool buildFaissIndex = false;                         // 训练结束时是否构建 FAISS 索引

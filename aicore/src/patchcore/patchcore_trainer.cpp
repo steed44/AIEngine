@@ -9,8 +9,12 @@
 #include "patchcore/faiss_index_bridge.h"
 #include "patchcore/folder_dataset.h"
 #include "patchcore/scheduler.h"
+#include "json.hpp"
 #include <random>
 #include <cmath>
+#include <fstream>
+#include <algorithm>
+#include <numeric>
 
 namespace aicore {
 
@@ -190,6 +194,95 @@ Status PatchCoreTrainer::Train(IDataset& dataset, const std::string& modelPath,
         if (!faissSt) {
             // FAISS 构建失败非致命，不影响 MemoryBank 可用性
             lastError_ = faissSt.message;
+        }
+    }
+
+    // 可选：自动计算阈值（用训练集正样本的 anomaly score 分布）
+    if (cfg.computeThresholdFromTrainData) {
+        if (cfg.onProgress) {
+            cfg.onProgress(static_cast<int>(total), static_cast<int>(total),
+                           "computing threshold from training data");
+        }
+
+        // 按采样比例随机选择图片
+        std::vector<size_t> indices(total);
+        std::iota(indices.begin(), indices.end(), 0);
+        std::shuffle(indices.begin(), indices.end(), std::mt19937(std::random_device()()));
+        size_t sampleCount = std::max<size_t>(1,
+            static_cast<size_t>(total * cfg.thresholdSampleRatio));
+        if (sampleCount > total) sampleCount = total;
+        indices.resize(sampleCount);
+
+        // 遍历采样图片，收集 anomaly score
+        std::vector<float> scores;
+        scores.reserve(sampleCount);
+
+        for (size_t idx : indices) {
+            auto sample = dataset.Get(idx);
+            auto feats = backbone->Extract(sample.image);
+            if (feats.empty()) continue;
+
+            auto anomalyMap = bank.ComputeAnomalyMap(feats,
+                sample.image.rows, sample.image.cols);
+            if (anomalyMap.empty()) continue;
+
+            float maxVal = *std::max_element(anomalyMap.begin(), anomalyMap.end());
+            scores.push_back(maxVal);
+        }
+
+        if (!scores.empty()) {
+            float scoreMin = *std::min_element(scores.begin(), scores.end());
+            float scoreMax = *std::max_element(scores.begin(), scores.end());
+            double sum = std::accumulate(scores.begin(), scores.end(), 0.0);
+            double mean = sum / scores.size();
+            double sqSum = 0.0;
+            for (float s : scores) sqSum += (s - mean) * (s - mean);
+            double stddev = std::sqrt(sqSum / scores.size());
+
+            float threshold = 0.0f;
+            switch (cfg.thresholdMethod) {
+            case ThresholdMethod::MaxScore:
+                threshold = scoreMax;
+                break;
+            case ThresholdMethod::MeanKSigma:
+                threshold = static_cast<float>(mean + cfg.thresholdSigma * stddev);
+                break;
+            case ThresholdMethod::Percentile:
+                std::sort(scores.begin(), scores.end());
+                {
+                    size_t pIdx = static_cast<size_t>(
+                        std::ceil(cfg.thresholdPercentile / 100.0 * scores.size())) - 1;
+                    if (pIdx >= scores.size()) pIdx = scores.size() - 1;
+                    threshold = scores[pIdx];
+                }
+                break;
+            }
+
+            // 写出 .threshold.json 文件
+            nlohmann::json j;
+            j["anomaly_threshold"] = threshold;
+            switch (cfg.thresholdMethod) {
+            case ThresholdMethod::MaxScore:   j["method"] = "max_score"; break;
+            case ThresholdMethod::MeanKSigma: j["method"] = "mean_ksigma"; break;
+            case ThresholdMethod::Percentile: j["method"] = "percentile"; break;
+            }
+            j["num_samples"] = scores.size();
+            j["score_stats"]["min"] = scoreMin;
+            j["score_stats"]["max"] = scoreMax;
+            j["score_stats"]["mean"] = mean;
+            j["score_stats"]["std"] = stddev;
+
+            if (cfg.thresholdMethod == ThresholdMethod::MeanKSigma) {
+                j["threshold_params"]["sigma"] = cfg.thresholdSigma;
+            } else if (cfg.thresholdMethod == ThresholdMethod::Percentile) {
+                j["threshold_params"]["percentile"] = cfg.thresholdPercentile;
+            }
+
+            std::string jsonPath = outputPath + ".threshold.json";
+            std::ofstream of(jsonPath);
+            if (of) of << j.dump(2);
+        } else {
+            lastError_ = "threshold computation: no valid scores collected";
         }
     }
 

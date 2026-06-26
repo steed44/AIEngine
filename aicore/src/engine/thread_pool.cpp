@@ -83,14 +83,11 @@ ThreadPool::~ThreadPool() {
  */
 void ThreadPool::WaitAll() {
     // ---- WaitAll 等待机制 ----
-    // 使用单独的 activeCount_ 和 activeCv_ 追踪正在执行的任务数。
-    // 原理：Enqueue 时 activeCount_++，任务执行完毕后主动调用回调 activeCount_--。
-    // WaitAll 等待 activeCount_ == 0 && tasks_.empty()。
-    // 这种方式比简单的 join 更轻量——不会销毁和重建线程。
-    // 注意：需要 Enqueue 的实现保证任务完成后更新 activeCount_。
+    // 使用 activeCount_ 追踪正在执行的任务数。
+    // activeCount_ == 0 时所有任务已完成（tasks_ 受 mutex_ 保护，此处不读取）。
     std::unique_lock<std::mutex> lock(activeMutex_);
     activeCv_.wait(lock, [this] {
-        return tasks_.empty() && activeCount_ == 0;
+        return activeCount_ == 0;
     });
 }
 
