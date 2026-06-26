@@ -86,16 +86,16 @@ private:
 
     // 成员变量
     std::string name_;                              // 节点名称
-    std::unique_ptr<IBackbone> backbone_;           // 默认 backbone
-    std::unique_ptr<IBackbone> gpuBackbone_;        // GPU backbone (libtorch)
-    std::unique_ptr<IBackbone> cpuBackbone_;        // CPU 降级 backbone (opencv_dnn)
-    TieredMemoryBank memoryBank_;                   // 特征存储 + 最近邻搜索
-    std::unique_ptr<ThreadPool> threadPool_;        // 线程池
-    int inputSize_ = 224;                           // backbone 输入尺寸
-    float anomalyThreshold_ = 0.5f;                 // 异常判定阈值
+    std::unique_ptr<IBackbone> backbone_;           // 默认 backbone（创建时指定的类型）
+    std::unique_ptr<IBackbone> gpuBackbone_;        // GPU backbone（libtorch），用于加速推理
+    std::unique_ptr<IBackbone> cpuBackbone_;        // CPU 降级 backbone（opencv_dnn），GPU 失败时回退
+    TieredMemoryBank memoryBank_;                   // 三级特征存储 + 最近邻搜索（热/温/冷）
+    std::unique_ptr<ThreadPool> threadPool_;        // 线程池，并行处理 tile 和多尺度
+    int inputSize_ = 224;                           // backbone 输入尺寸（224×224）
+    float anomalyThreshold_ = 0.5f;                 // 异常判定阈值（>阈值则标记为异常）
     int maxTileSize_ = 1024;                        // 分片最大尺寸（0=不分片）
-    int multiScale_ = 0;                            // 多尺度推理开关
-    TileCache tileCache_;                           // tile 缓存
+    int multiScale_ = 0;                            // 多尺度推理开关（1=启用图像金字塔）
+    TileCache tileCache_;                           // tile 缓存：key=ROI坐标，value=异常热力图
 };
 
 } // namespace aicore

@@ -1,3 +1,21 @@
+// ============================================================
+// yolo_loss.cpp — YOLOv8 综合 Loss 计算（CIoU + DFL + BCE）
+//
+// 本文件实现 YOLOv8 训练的核心损失函数，包含三个子损失：
+//   1. CIoU Loss — 边界框回归损失（考虑重叠、中心距、长宽比）
+//   2. DFL Loss — Distribution Focal Loss（分布焦点损失）
+//   3. BCE Loss — Binary Cross Entropy（分类损失）
+//
+// 整体流程：
+//   assignTargets() → 将 GT 标注分配到预测网格（正样本匹配）
+//   operator()()    → 解码预测 → 计算三个子损失 → 加权求和
+//
+// YOLOv8 的 anchor-free 设计：
+//   传统 YOLO 使用预定义 anchor box，YOLOv8 改为 anchor-free，
+//   直接在每个网格点上预测相对于网格中心的偏移量 (l,r,t,b)。
+//   使用 DFL 将离散分布回归为连续值，提升小目标检测精度。
+// ============================================================
+
 #include "trainer/model/yolo_loss.h"
 #include <cmath>
 
@@ -5,6 +23,7 @@ namespace aicore {
 
 // ============================================================
 // boxCxwhToXyxy: [N,4] cxcywh → x1y1x2y2 (归一化坐标)
+// 将中心点+宽高格式转换为左上角+右下角格式
 // ============================================================
 torch::Tensor boxCxwhToXyxy(const torch::Tensor& x) {
     auto cx = x.index({"...", 0});
@@ -18,6 +37,8 @@ torch::Tensor boxCxwhToXyxy(const torch::Tensor& x) {
 
 // ============================================================
 // computeIoU: [N,4] vs [N,4] → [N] IoU
+// 计算两组边界框的交并比（Intersection over Union）
+// 用于 NMS 和 CIoU Loss 中的重叠度度量
 // ============================================================
 torch::Tensor computeIoU(const torch::Tensor& b1, const torch::Tensor& b2) {
     auto interX1 = torch::max(b1.index({"...", 0}), b2.index({"...", 0}));
@@ -38,6 +59,9 @@ torch::Tensor computeIoU(const torch::Tensor& b1, const torch::Tensor& b2) {
 
 // ============================================================
 // ciouLoss: 1 - IoU + rho^2/c^2 + alpha*v
+// 完整 CIoU Loss，同时优化：重叠面积、中心点距离、长宽比一致性
+// rho^2/c^2: 中心点距离除以最小外接矩形对角线平方（归一化）
+// alpha*v: 长宽比一致性惩罚（atan 差值的平方）
 // ============================================================
 torch::Tensor ciouLoss(
     const torch::Tensor& boxes,
@@ -54,14 +78,14 @@ torch::Tensor ciouLoss(
     auto b2X2 = targets.index({"...", 2});
     auto b2Y2 = targets.index({"...", 3});
 
-    // center distance rho^2
+    // center distance rho^2: 预测框和 GT 框中心点的欧氏距离平方
     auto cxb1 = (b1X1 + b1X2) / 2;
     auto cyb1 = (b1Y1 + b1Y2) / 2;
     auto cxb2 = (b2X1 + b2X2) / 2;
     auto cyb2 = (b2Y1 + b2Y2) / 2;
     auto rho2 = (cxb1 - cxb2).pow(2) + (cyb1 - cyb2).pow(2);
 
-    // diagonal of smallest enclosing box c^2
+    // diagonal of smallest enclosing box c^2: 最小外接矩形的对角线长度平方
     auto encloseX1 = torch::min(b1X1, b2X1);
     auto encloseY1 = torch::min(b1Y1, b2Y1);
     auto encloseX2 = torch::max(b1X2, b2X2);
@@ -69,12 +93,14 @@ torch::Tensor ciouLoss(
     auto c2 = (encloseX2 - encloseX1).pow(2) + (encloseY2 - encloseY1).pow(2) + 1e-7;
 
     // v = (4/pi^2) * (atan(w_gt/h_gt) - atan(w/h))^2
+    // 衡量预测框和 GT 框长宽比的一致性，值越大惩罚越大
     auto wPred = b1X2 - b1X1;
     auto hPred = b1Y2 - b1Y1;
     auto wGt = b2X2 - b2X1;
     auto hGt = b2Y2 - b2Y1;
     auto v = (4 / (M_PI * M_PI)) * (torch::atan(wGt / (hGt + 1e-7)) - torch::atan(wPred / (hPred + 1e-7))).pow(2);
 
+    // alpha: v 的自适应权重，当 IoU 较小时增大对长宽比的惩罚
     auto alpha = v / (1 - iou + v + 1e-7);
 
     return 1 - iou + rho2 / c2 + alpha * v;
@@ -82,13 +108,16 @@ torch::Tensor ciouLoss(
 
 // ============================================================
 // dflLoss: cross-entropy on softmax(reg_max distribution)
+// DFL (Distribution Focal Loss) 用于将离散分布回归为连续值
+// 原理：预测每个边 (l/r/t/b) 在 reg_max 个 bin 上的概率分布，
+//       然后用交叉熵损失约束分布逼近目标连续值
 // ============================================================
 torch::Tensor dflLoss(
     const torch::Tensor& pred,
     const torch::Tensor& target,
     int regMax) {
 
-    // pred: [N, regMax] → softmax → [N, regMax]
+    // pred: [N, regMax] → softmax → [N, regMax] 概率分布
     auto prob = torch::softmax(pred, -1);
 
     // 对每个 target 位置，找到左右临近的 bin
@@ -109,6 +138,8 @@ torch::Tensor dflLoss(
 
 // ============================================================
 // bceLoss: binary cross-entropy with sigmoid
+// 数值稳定的 BCE 实现：max(pred,0) - pred*target + log(1+exp(-|pred|))
+// 避免 exp(pred) 在 pred 很大时溢出
 // ============================================================
 torch::Tensor bceLoss(
     const torch::Tensor& pred,
@@ -123,7 +154,9 @@ torch::Tensor bceLoss(
 }
 
 // ============================================================
-// YOLOLoss
+// YOLOLoss::assignTargets — GT 标注分配到预测网格
+// 将每个 GT box 分配到对应尺度的网格点，构建正样本
+// 输出：targetBox/targetCls/targetScore + 网格中心/stride 信息
 // ============================================================
 YOLOLoss::YOLOLoss(const YOLOLossConfig& cfg) : cfg_(cfg) {}
 
@@ -145,6 +178,7 @@ YOLOLoss::AssignResult YOLOLoss::assignTargets(
 
     auto device = targets.device();
 
+    // 计算每个尺度的网格总数，以及累计偏移量（用于扁平化索引）
     int64_t totalGrids = 0;
     std::vector<int64_t> gridsPerScale(numScales);
     std::vector<int64_t> cumPrev(numScales + 1, 0);
@@ -155,10 +189,12 @@ YOLOLoss::AssignResult YOLOLoss::assignTargets(
     totalGrids = cumPrev[numScales];
     int64_t batchSize = preds[0].size(0);
 
+    // 预分配缓冲区，避免频繁 realloc
     std::vector<float> boxBuf, clsBuf, scoreBuf, gcxBuf, gcyBuf;
     std::vector<int64_t> idxBuf, strideBuf;
     std::vector<int> batchBuf;
 
+    // 遍历每个 GT box，找到其中心落在哪个尺度的哪个网格点
     for (int64_t ti = 0; ti < numTargets; ++ti) {
         auto t = targets[ti];
         int64_t bi = (int64_t)t[0].item<float>();
@@ -168,6 +204,7 @@ YOLOLoss::AssignResult YOLOLoss::assignTargets(
         float w  = t[4].item<float>();
         float h  = t[5].item<float>();
 
+        // 对每个尺度，将 GT 分配到对应网格
         for (int si = 0; si < numScales; ++si) {
             int64_t H = preds[si].size(2);
             int64_t W = preds[si].size(3);
@@ -206,6 +243,7 @@ YOLOLoss::AssignResult YOLOLoss::assignTargets(
         return result;
     }
 
+    // 将缓冲区数据拷贝到 Tensor（零拷贝优化）
     result.flatIdx = torch::from_blob(idxBuf.data(), { (int64_t)idxBuf.size() },
         torch::TensorOptions(torch::kLong)).clone().to(device);
     {
