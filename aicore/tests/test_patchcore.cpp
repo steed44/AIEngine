@@ -747,3 +747,133 @@ TEST(BenchmarkTest, SaveLoadThroughput) {
 
     std::remove("test_bench.bin");
 }
+
+// ─── FAISS 集成测试 ──────────────────────────────────────────
+
+TEST(FaissIntegrationTest, BruteForceMatchesBaseline) {
+    const int dim = 4;
+    const int n = 20;
+    std::vector<PatchFeature> features(n);
+    for (int i = 0; i < n; ++i) {
+        features[i].features.resize(dim);
+        for (int d = 0; d < dim; ++d)
+            features[i].features[d] = static_cast<float>(i * dim + d);
+        features[i].layerIdx = 0;
+        features[i].patchRow = i;
+        features[i].patchCol = 0;
+    }
+
+    // 暴力 baseline
+    MemoryBank bank;
+    bank.Build(features);
+
+    // FAISS Flat
+    FaissIndexConfig cfg;
+    cfg.algorithm = FaissSearchAlgorithm::BruteForce;
+    cfg.d = dim;
+    FaissIndex faissIdx;
+    ASSERT_TRUE(faissIdx.Train(features, cfg));
+
+    // 随机查询 10 次，比较结果
+    std::mt19937 rng(42);
+    for (int q = 0; q < 10; ++q) {
+        std::vector<float> query(dim);
+        for (int d = 0; d < dim; ++d)
+            query[d] = static_cast<float>(rng() % 100);
+
+        float baselineDist = 0;
+        size_t baselineIdx = bank.NearestNeighbor(query, baselineDist);
+        auto [faissIdx_, faissDist_] = faissIdx.NearestNeighbor(query);
+        (void)faissIdx_;
+
+        // FAISS Flat 应得到与暴力搜索一致的距离
+        EXPECT_NEAR(faissDist_, baselineDist, 1e-3f);
+    }
+}
+
+TEST(FaissIntegrationTest, HNSWApproximateRecall) {
+    const int dim = 8;
+    const int n = 200;
+    std::vector<PatchFeature> features(n);
+    for (int i = 0; i < n; ++i) {
+        features[i].features.resize(dim);
+        for (int d = 0; d < dim; ++d)
+            features[i].features[d] = static_cast<float>((i * 31 + d * 17) % 100);
+        features[i].layerIdx = 0;
+        features[i].patchRow = i;
+        features[i].patchCol = 0;
+    }
+
+    // 暴力 baseline
+    MemoryBank bank;
+    bank.Build(features);
+
+    // HNSW
+    FaissIndexConfig cfg;
+    cfg.algorithm = FaissSearchAlgorithm::HNSW;
+    cfg.d = dim;
+    cfg.M = 16;
+    cfg.efConstruction = 100;
+    cfg.efSearch = 50;
+    FaissIndex hnswIdx;
+    ASSERT_TRUE(hnswIdx.Train(features, cfg));
+
+    // HNSW 近似搜索的 recall@1 应 ≥ 0.9
+    int correct = 0;
+    int trials = 50;
+    std::mt19937 rng(123);
+    for (int t = 0; t < trials; ++t) {
+        std::vector<float> query(dim);
+        for (int d = 0; d < dim; ++d)
+            query[d] = static_cast<float>(rng() % 100);
+
+        float baselineDist = 0;
+        size_t baselineIdx = bank.NearestNeighbor(query, baselineDist);
+        auto [hnswIdx_, hnswDist_] = hnswIdx.NearestNeighbor(query);
+        (void)hnswIdx_;
+
+        // HNSW 距离 ≤ baseline 距离的 1.1 倍则算正确
+        if (hnswDist_ <= baselineDist * 1.1f + 0.01f) {
+            correct++;
+        }
+    }
+    EXPECT_GE(static_cast<float>(correct) / trials, 0.9f);
+}
+
+TEST(FaissIntegrationTest, TrainFromMemoryBankFile) {
+    std::vector<PatchFeature> features(10);
+    for (int i = 0; i < 10; ++i) {
+        features[i].features = {static_cast<float>(i), static_cast<float>(i + 1),
+                                static_cast<float>(i + 2), static_cast<float>(i + 3)};
+        features[i].layerIdx = 0;
+        features[i].patchRow = 0;
+        features[i].patchCol = i;
+    }
+    MemoryBank bank;
+    bank.Build(features);
+    ASSERT_TRUE(bank.Save("test_faiss_e2e.bin"));
+
+    FaissIndexConfig cfg;
+    cfg.algorithm = FaissSearchAlgorithm::BruteForce;
+    cfg.d = 4;
+
+    FaissIndexBridge bridge;
+    ASSERT_TRUE(bridge.TrainFromMemoryBank("test_faiss_e2e.bin", cfg));
+    EXPECT_TRUE(bridge.IsReady());
+
+    std::vector<PatchFeature> queries;
+    PatchFeature q;
+    q.features = features[0].features;
+    q.layerIdx = 0;
+    q.patchRow = 0;
+    q.patchCol = 0;
+    queries.push_back(q);
+
+    cv::Mat heatmap = bridge.ComputeAnomalyMap(queries, 10, 10);
+    EXPECT_EQ(heatmap.rows, 10);
+    EXPECT_EQ(heatmap.cols, 10);
+    EXPECT_EQ(heatmap.type(), CV_32F);
+
+    std::remove("test_faiss_e2e.bin");
+    std::remove("test_faiss_e2e.bin.flat.faiss");
+}

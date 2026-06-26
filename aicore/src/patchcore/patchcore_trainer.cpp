@@ -6,6 +6,7 @@
 #include "patchcore/patchcore_trainer.h"
 #include "patchcore/backbone.h"
 #include "patchcore/coreset_sampler.h"
+#include "patchcore/faiss_index_bridge.h"
 #include "patchcore/folder_dataset.h"
 #include "patchcore/scheduler.h"
 #include <random>
@@ -167,6 +168,29 @@ Status PatchCoreTrainer::Train(IDataset& dataset, const std::string& modelPath,
     if (!saveStatus) {
         lastError_ = saveStatus.message;
         return saveStatus;
+    }
+
+    // 可选：构建 FAISS 索引
+    if (cfg.buildFaissIndex) {
+        if (cfg.onProgress) {
+            cfg.onProgress(static_cast<int>(total), static_cast<int>(total),
+                           "building faiss index");
+        }
+
+        FaissIndexConfig faissCfg;
+        faissCfg.algorithm = cfg.faissAlgorithm;
+        faissCfg.nlist = cfg.faissNlist;
+        faissCfg.nprobe = cfg.faissNprobe;
+        faissCfg.M = cfg.faissM;
+        faissCfg.efConstruction = cfg.faissEfConstruction;
+        faissCfg.efSearch = cfg.faissEfSearch;
+
+        FaissIndexBridge bridge;
+        Status faissSt = bridge.TrainFromMemoryBank(outputPath, faissCfg);
+        if (!faissSt) {
+            // FAISS 构建失败非致命，不影响 MemoryBank 可用性
+            lastError_ = faissSt.message;
+        }
     }
 
     return Status{};

@@ -22,8 +22,38 @@
 #include "engine/thread_pool.h"
 #include <opencv2/imgproc.hpp>
 #include <future>
+#include <cctype>
+#include <algorithm>
 
 namespace aicore {
+
+// -------------------------------------------------------
+// 将 search_algorithm 字符串转为枚举，未知值返回 BruteForce
+// -------------------------------------------------------
+static FaissSearchAlgorithm ParseSearchAlgorithm(const std::string& s) {
+    std::string lower = s;
+    for (auto& c : lower) c = static_cast<char>(std::tolower(c));
+    if (lower == "ivf")  return FaissSearchAlgorithm::IVF;
+    if (lower == "hnsw") return FaissSearchAlgorithm::HNSW;
+    return FaissSearchAlgorithm::BruteForce;
+}
+
+// -------------------------------------------------------
+// DispatchAnomalyMap — 根据 searchAlgo_ 分发到 FAISS 或暴力搜索
+// -------------------------------------------------------
+cv::Mat PatchCoreNode::DispatchAnomalyMap(
+    const std::vector<PatchFeature>& features, int rows, int cols) {
+    if (searchAlgo_ != FaissSearchAlgorithm::BruteForce &&
+        faissBridge_ && faissBridge_->IsReady()) {
+        return faissBridge_->ComputeAnomalyMap(features, rows, cols);
+    }
+    // 暴力搜索路径：TieredMemoryBank 返回 std::vector<float>
+    auto data = memoryBank_.ComputeAnomalyMap(features, rows, cols);
+    if (data.empty()) {
+        return cv::Mat(rows, cols, CV_32F, cv::Scalar(0));
+    }
+    return cv::Mat(rows, cols, CV_32F, data.data()).clone();
+}
 
 // ============================================================
 // Init — 初始化 PatchCoreNode
@@ -84,12 +114,58 @@ Status PatchCoreNode::Init(const NodeConfig& config) {
 
     // 加载 memory bank 并提升到 GPU
     auto mn = config.find("memory_bank_path");
-    auto loadStatus = memoryBank_.Load(mn->second);
+    std::string memoryBankPath = mn->second;
+    auto loadStatus = memoryBank_.Load(memoryBankPath);
     if (!loadStatus) {
         return Status{StatusCode::ErrorModelLoad,
             "patchcore: cannot load memory bank: " + loadStatus.message};
     }
     memoryBank_.PromoteToGPU();
+
+    // 读取 FAISS 搜索算法配置（可选，默认 brute_force）
+    auto sa = config.find("search_algorithm");
+    if (sa != config.end() && sa->second != "brute_force") {
+        searchAlgo_ = ParseSearchAlgorithm(sa->second);
+
+        // 读取 FAISS 参数
+        auto nli = config.find("faiss_nlist");
+        if (nli != config.end()) faissNlist_ = std::stoi(nli->second);
+        auto npr = config.find("faiss_nprobe");
+        if (npr != config.end()) faissNprobe_ = std::stoi(npr->second);
+        auto m = config.find("faiss_m");
+        if (m != config.end()) faissM_ = std::stoi(m->second);
+        auto efc = config.find("faiss_ef_construction");
+        if (efc != config.end()) faissEfConstruction_ = std::stoi(efc->second);
+        auto efs = config.find("faiss_ef_search");
+        if (efs != config.end()) faissEfSearch_ = std::stoi(efs->second);
+
+        // 构造 FAISS 配置
+        FaissIndexConfig faissCfg;
+        faissCfg.algorithm = searchAlgo_;
+        faissCfg.nlist = faissNlist_;
+        faissCfg.nprobe = faissNprobe_;
+        faissCfg.M = faissM_;
+        faissCfg.efConstruction = faissEfConstruction_;
+        faissCfg.efSearch = faissEfSearch_;
+
+        // 尝试加载 .faiss 索引，不存在则从 .bin 训练
+        auto faissIdxPath = memoryBankPath + "." + sa->second + ".faiss";
+        faissBridge_ = std::make_unique<FaissIndexBridge>();
+
+        Status faissSt;
+        // 优先尝试加载已保存的索引
+        faissSt = faissBridge_->LoadIndex(faissIdxPath);
+        if (!faissSt) {
+            // 回退：从 .bin 训练
+            faissSt = faissBridge_->TrainFromMemoryBank(memoryBankPath, faissCfg);
+        }
+
+        if (!faissSt) {
+            // FAISS 初始化失败，降级到暴力搜索
+            searchAlgo_ = FaissSearchAlgorithm::BruteForce;
+            faissBridge_.reset();
+        }
+    }
 
     // 读取可选配置参数
     auto is = config.find("input_size");
@@ -153,15 +229,15 @@ Status PatchCoreNode::ProcessTile(const cv::Mat& img, const cv::Rect& roi,
             "patchcore: backbone returned no features"};
     }
 
-    auto anomalyData = memoryBank_.ComputeAnomalyMap(features, tile.rows, tile.cols);
-    if (anomalyData.empty()) {
+    tileMapOut = DispatchAnomalyMap(features, tile.rows, tile.cols);
+    if (tileMapOut.empty()) {
         return Status{StatusCode::ErrorInternal,
             "patchcore: anomaly map empty"};
     }
 
     // 缓存到 tileCache_，key 为 ROI 坐标
     TileKey key{roi.x, roi.y, roi.width, roi.height};
-    tileMapOut = cv::Mat(tile.rows, tile.cols, CV_32F, anomalyData.data()).clone();
+    tileCache_[key] = tileMapOut.clone();
     tileCache_[key] = tileMapOut.clone();
     return Status{};
 }
@@ -220,12 +296,11 @@ Status PatchCoreNode::Process(const std::vector<Frame>& inputs,
             return Status{StatusCode::ErrorModelInfer,
                 "patchcore: backbone returned no features"};
         }
-        auto anomalyData = memoryBank_.ComputeAnomalyMap(features, img.rows, img.cols);
-        if (anomalyData.empty()) {
+        fullMap = DispatchAnomalyMap(features, img.rows, img.cols);
+        if (fullMap.empty()) {
             return Status{StatusCode::ErrorInternal,
                 "patchcore: anomaly map empty"};
         }
-        fullMap = cv::Mat(img.rows, img.cols, CV_32F, anomalyData.data()).clone();
     }
     // 策略2：分片处理（大图像）
     else if (needsTiling) {
@@ -350,11 +425,8 @@ Status PatchCoreNode::Process(const std::vector<Frame>& inputs,
             auto features = backbone->Extract(src);
             if (features.empty()) continue;
 
-            auto anomalyData = memoryBank_.ComputeAnomalyMap(
-                features, src.rows, src.cols);
-            if (anomalyData.empty()) continue;
-
-            cv::Mat scaleMap(src.rows, src.cols, CV_32F, anomalyData.data());
+            cv::Mat scaleMap = DispatchAnomalyMap(features, src.rows, src.cols);
+            if (scaleMap.empty()) continue;
             if (scale < 1.0f) {
                 // 放大回原图尺寸后 max-fusion
                 cv::Mat up;

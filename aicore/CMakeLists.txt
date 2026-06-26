@@ -84,6 +84,8 @@ set(AICORE_SOURCES
     src/patchcore/tiered_memory_bank.cpp
     src/patchcore/patchcore_visualize.cpp
     src/patchcore/anomaly_evaluator.cpp
+    src/patchcore/faiss_index.cpp
+    src/patchcore/faiss_index_bridge.cpp
     src/patchcore/nn_search.cu
     src/patchcore/scheduler.cpp
     src/api/scheduler_api.cpp
@@ -116,6 +118,24 @@ find_package(OpenMP)
 if(OpenMP_CXX_FOUND)
     target_link_libraries(aicore PRIVATE OpenMP::OpenMP_CXX)
 endif()
+
+# ──────────────────────────────────────────────
+# FAISS (近似最近邻搜索)
+# ──────────────────────────────────────────────
+include(FetchContent)
+set(FAISS_ENABLE_GPU OFF CACHE BOOL "" FORCE)
+set(FAISS_ENABLE_PYTHON OFF CACHE BOOL "" FORCE)
+set(FAISS_ENABLE_C_API OFF CACHE BOOL "" FORCE)
+set(FAISS_OPT_LEVEL "generic" CACHE STRING "" FORCE)
+FetchContent_Declare(
+  faiss
+  GIT_REPOSITORY https://github.com/facebookresearch/faiss.git
+  GIT_TAG v1.10.0
+)
+set(FAISS_OPT_LEVEL "generic")
+FetchContent_MakeAvailable(faiss)
+target_link_libraries(aicore PRIVATE faiss)
+target_include_directories(aicore PRIVATE ${faiss_SOURCE_DIR})
 
 # ──────────────────────────────────────────────
 # 模型优化工具 DLL (aicore_optimizer.dll)
