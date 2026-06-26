@@ -2,6 +2,7 @@
 #include "core/processor.h"
 #include "patchcore/tiered_memory_bank.h"
 #include "patchcore/backbone.h"
+#include "patchcore/faiss_index_bridge.h"
 #include <string>
 #include <vector>
 #include <memory>
@@ -15,7 +16,7 @@ namespace aicore {
  *
  * 实现 PatchCore (WACV 2022) 算法的推理部分：
  *   1. 通过 backbone 提取图像的 patch 级特征
- *   2. 在 memory bank 中进行最近邻搜索
+ *   2. 在 memory bank 中进行最近邻搜索（暴力或 FAISS 近似）
  *   3. 计算每个 patch 的异常距离
  *   4. 输出异常热力图和异常得分
  *
@@ -26,6 +27,8 @@ namespace aicore {
  *   - 多尺度推理：图像金字塔 1.0/0.75/0.5，max-fusion
  *   - Tile Cache：帧内重复 ROI 避免重复计算
  *   - GPU 自动降级：GPU 提取失败时回退 CPU
+ *   - FAISS 近似最近邻搜索：IVF/HNSW/BruteForce 三种算法可选
+ *   - FAISS 自动降级：索引文件损坏或构建失败时回退暴力搜索
  *
  * 输入 Frame：cv::Mat（RGB/BGR 图像）
  * 输出 Frame：cv::Mat（CV_32F 异常热力图）
@@ -40,6 +43,12 @@ namespace aicore {
  *   - anomaly_threshold: 异常判定阈值，默认 0.5
  *   - max_tile_size: 分片最大尺寸（0=不分片），默认 1024
  *   - multi_scale: 是否启用多尺度（0=禁用，1=启用），默认 0
+ *   - search_algorithm: FAISS 算法（"brute_force"/"ivf"/"hnsw"），默认 "brute_force"
+ *   - faiss_nlist: IVF 聚类中心数，默认 100
+ *   - faiss_nprobe: IVF 探查簇数，默认 16
+ *   - faiss_m: HNSW 连接数，默认 16
+ *   - faiss_ef_construction: HNSW 构建动态列表，默认 200
+ *   - faiss_ef_search: HNSW 搜索动态列表，默认 64
  */
 class PatchCoreNode : public IProcessor {
 public:
@@ -84,6 +93,10 @@ private:
     /** Tile 缓存：key=ROI 坐标，value=异常热力图 */
     using TileCache = std::unordered_map<TileKey, cv::Mat, TileKeyHash>;
 
+    // 搜索分发：暴力搜索走 memoryBank_，FAISS 模式走 faissBridge_
+    cv::Mat DispatchAnomalyMap(const std::vector<PatchFeature>& features,
+                                int rows, int cols);
+
     // 成员变量
     std::string name_;                              // 节点名称
     std::unique_ptr<IBackbone> backbone_;           // 默认 backbone（创建时指定的类型）
@@ -96,6 +109,15 @@ private:
     int maxTileSize_ = 1024;                        // 分片最大尺寸（0=不分片）
     int multiScale_ = 0;                            // 多尺度推理开关（1=启用图像金字塔）
     TileCache tileCache_;                           // tile 缓存：key=ROI坐标，value=异常热力图
+
+    // FAISS 近似最近邻搜索（可选，默认 BruteForce）
+    std::unique_ptr<FaissIndexBridge> faissBridge_; // FAISS 桥接层
+    FaissSearchAlgorithm searchAlgo_ = FaissSearchAlgorithm::BruteForce;
+    int faissNlist_ = 100;
+    int faissNprobe_ = 16;
+    int faissM_ = 16;
+    int faissEfConstruction_ = 200;
+    int faissEfSearch_ = 64;
 };
 
 } // namespace aicore

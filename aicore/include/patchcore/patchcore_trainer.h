@@ -6,6 +6,7 @@
 #pragma once
 #include "core/types.h"
 #include "patchcore/memory_bank.h"
+#include "patchcore/faiss_index.h"
 #include "trainer/data/dataset.h"
 #include <string>
 #include <functional>
@@ -26,6 +27,15 @@ struct AICORE_API PatchCoreTrainConfig {
     size_t maxFeatures = 100000;              // 最大特征数上限（超出时随机降采样）
     bool computeNormParams = true;            // 是否计算并保存特征归一化参数
     ProgressCallback onProgress = nullptr;    // 可选: 训练进度回调
+
+    // FAISS 索引构建（可选）
+    bool buildFaissIndex = false;                         // 训练结束时是否构建 FAISS 索引
+    FaissSearchAlgorithm faissAlgorithm = FaissSearchAlgorithm::HNSW;
+    int faissNlist = 100;
+    int faissNprobe = 16;
+    int faissM = 16;
+    int faissEfConstruction = 200;
+    int faissEfSearch = 64;
 };
 
 // -------------------------------------------------------

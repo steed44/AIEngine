@@ -85,6 +85,9 @@ target_sources(aicore_tests PRIVATE
     ${PROJECT_SOURCE_DIR}/src/patchcore/scheduler.cpp
     ${PROJECT_SOURCE_DIR}/src/patchcore/anomaly_evaluator.cpp
     ${PROJECT_SOURCE_DIR}/src/patchcore/patchcore_visualize.cpp
+    # FAISS 索引
+    ${PROJECT_SOURCE_DIR}/src/patchcore/faiss_index.cpp
+    ${PROJECT_SOURCE_DIR}/src/patchcore/faiss_index_bridge.cpp
     # Multi-ROI: 多区域多模型支持
     ${PROJECT_SOURCE_DIR}/src/patchcore/roi_def.cpp
     ${PROJECT_SOURCE_DIR}/src/patchcore/roi_trainer.cpp
@@ -124,7 +127,7 @@ if(Torch_FOUND)
 endif()
 
 # 链接 GTest (FetchContent) 和 OpenCV
-target_link_libraries(aicore_tests PRIVATE gtest gtest_main ${OpenCV_LIBS} Python3::Python CUDA::cudart)
+target_link_libraries(aicore_tests PRIVATE gtest gtest_main ${OpenCV_LIBS} Python3::Python CUDA::cudart faiss)
 get_filename_component(PYTHON3_HOME "${Python3_EXECUTABLE}" DIRECTORY)
 target_compile_definitions(aicore_tests PRIVATE PYTHON3_HOME="${PYTHON3_HOME}")
 
