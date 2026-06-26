@@ -65,3 +65,6 @@ arch_*.svg
 
 # graphify temp files
 .graphify_*
+
+# Git worktrees
+.worktrees/
