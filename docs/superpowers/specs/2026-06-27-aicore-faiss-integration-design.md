@@ -9,7 +9,7 @@
 - FAISS 索引构建：训练阶段从 MemoryBank 构建 IVF/HNSW/Flat 索引
 - FAISS 索引推理：三种算法可选（暴力/IVF/HNSW），配置参数控制
 - 自动降级：FAISS 索引损坏或构建失败时回退暴力搜索
-- CPU/GPU 双模式：检测到 CUDA 时自动启用 GPU 版 FAISS
+- GPU 版 FAISS（可选）：CMake 选项 `FAISS_ENABLE_GPU=ON` 启用 GPU 索引
 - 现有流程零破坏：MemoryBank / TieredMemoryBank 代码不变
 
 ## 不包含
@@ -83,7 +83,8 @@ enum class FaissSearchAlgorithm {
 // FAISS 索引配置参数
 struct FaissIndexConfig {
     FaissSearchAlgorithm algorithm = FaissSearchAlgorithm::BruteForce;
-    int d = 0;  // 特征向量维度
+    // 特征向量维度（必填，Train() 前必须设置）
+    int d = 0;
 
     // --- IVF 参数 ---
     int nlist = 100;    // IVF 聚类中心数（构建参数）
@@ -394,4 +395,4 @@ target_link_libraries(aicore PRIVATE faiss)
 target_include_directories(aicore PRIVATE ${faiss_SOURCE_DIR})
 ```
 
-可选：检测到 CUDA 时启用 GPU 版 FAISS。
+GPU 版 FAISS（可选）：设置 `FAISS_ENABLE_GPU=ON` 并安装 CUDA 工具包即可启用。`FaissIndexConfig::gpuDevice` 设为 ≥0 时使用 GPU 索引，-1 使用 CPU。
