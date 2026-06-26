@@ -57,6 +57,7 @@ set(AICORE_SOURCES
     src/pipeline/model_node.cpp
     src/pipeline/composite_node.cpp
     src/pipeline/merge_node.cpp
+    src/pipeline/fusion_node.cpp
     src/backend/backend_factory.cpp
     src/backend/tensorrt_backend.cpp
     src/backend/onnxruntime_backend.cpp
@@ -64,7 +65,9 @@ set(AICORE_SOURCES
     src/preprocess/resize_node.cpp
     src/preprocess/normalize_node.cpp
     src/preprocess/letterbox_node.cpp
+    src/utils/draw_utils.cpp
     src/postprocess/nms_node.cpp
+    src/postprocess/nms_common.cpp
     src/postprocess/yolo_decode_node.cpp
     src/patchcore/memory_bank.cpp
     src/patchcore/coreset_sampler.cpp

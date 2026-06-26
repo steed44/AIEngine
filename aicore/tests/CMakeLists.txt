@@ -42,10 +42,13 @@ target_sources(aicore_tests PRIVATE
     ${PROJECT_SOURCE_DIR}/src/pipeline/model_node.cpp
     ${PROJECT_SOURCE_DIR}/src/pipeline/composite_node.cpp
     ${PROJECT_SOURCE_DIR}/src/pipeline/merge_node.cpp
+    ${PROJECT_SOURCE_DIR}/src/pipeline/fusion_node.cpp
     ${PROJECT_SOURCE_DIR}/src/preprocess/resize_node.cpp
     ${PROJECT_SOURCE_DIR}/src/preprocess/normalize_node.cpp
     ${PROJECT_SOURCE_DIR}/src/preprocess/letterbox_node.cpp
     ${PROJECT_SOURCE_DIR}/src/postprocess/nms_node.cpp
+    ${PROJECT_SOURCE_DIR}/src/postprocess/nms_common.cpp
+    ${PROJECT_SOURCE_DIR}/src/utils/draw_utils.cpp
     ${PROJECT_SOURCE_DIR}/src/postprocess/yolo_decode_node.cpp
     ${PROJECT_SOURCE_DIR}/src/api/aicore_api.cpp
     # Phase 2 — Optimizer: 模型优化模块
