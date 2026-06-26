@@ -55,6 +55,31 @@ TEST(NmsNodeTest, InitSucceeds) {
     EXPECT_EQ(node.GetType(), "nms");
 }
 
+// 测试：NMS 节点过滤重叠检测框
+TEST(NmsNodeTest, FilterOverlappingDetections) {
+    NmsNode node;
+    NodeConfig cfg{{"iou_threshold", "0.5"}, {"confidence_threshold", "0.1"}};
+    ASSERT_TRUE(node.Init(cfg));
+
+    Frame frame;
+    frame.detections.push_back(NodeResult{
+        "det_1", "cat", 0.9f, {100.f, 100.f, 80.f, 80.f}
+    });
+    frame.detections.push_back(NodeResult{
+        "det_2", "cat", 0.7f, {105.f, 105.f, 80.f, 80.f}
+    });
+    frame.detections.push_back(NodeResult{
+        "det_3", "dog", 0.8f, {200.f, 200.f, 60.f, 60.f}
+    });
+
+    std::vector<Frame> outputs;
+    ASSERT_TRUE(node.Process({frame}, outputs));
+    ASSERT_EQ(outputs.size(), 1);
+    // det_2 与 det_1 同类别且 IoU 高，应被抑制
+    // det_3 是不同类别，应保留
+    EXPECT_EQ(outputs[0].detections.size(), 2);
+}
+
 // 测试：ModelNode 初始化和类型名称
 TEST(ModelNodeTest, InitAndGetName) {
     auto backend = BackendFactory::Create(BackendType::kTensorRT);

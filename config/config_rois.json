@@ -5,12 +5,34 @@
     "input_size": 224,
     "layers": "layer2,layer3"
   },
+
+  // ===== 模式 1：固定 ROI 坐标（向后兼容） =====
+  // 所有训练图使用相同的 ROI 坐标
+  "roi_source": "fixed",
   "rois": [
     {"id": "connector_left",  "x": 10,   "y": 20,   "width": 120, "height": 80},
     {"id": "connector_right", "x": 180,  "y": 20,   "width": 120, "height": 80},
     {"id": "chip",            "x": 50,   "y": 150,  "width": 100, "height": 100},
     {"id": "solder_joint",    "x": 200,  "y": 180,  "width": 60,  "height": 60}
   ],
+
+  // ===== 模式 2：每图独立 ROI 坐标（新增） =====
+  // 取消下面注释启用每图模式：
+  // "roi_source": "per_image_file",
+  // "per_image_rois_dir": "./roi_annotations/",
+  // 此时 "rois" 字段可省略
+  //
+  // 每张图 a.png 对应 a.json，格式：
+  // {
+  //   "image": "a.png",
+  //   "rois": [
+  //     {"id": "1", "x": 100, "y": 50, "width": 120, "height": 80},
+  //     {"id": "2", "x": 300, "y": 200, "width": 100, "height": 100},
+  //     ...
+  //   ]
+  // }
+  // 相同 id 的 ROI 跨图合并训练，最终输出 N 个模型文件
+
   "train": {
     "coreset_fraction": 0.1,
     "max_features": 100000
