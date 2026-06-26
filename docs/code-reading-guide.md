@@ -42,14 +42,15 @@ AIEngine/
 │   │   ├── patchcore/               ← PatchCore 异常检测模块
 │   │   ├── pipeline/                ← DAG 节点实现
 │   │   ├── preprocess/              ← 预处理节点
-│   │   ├── postprocess/             ← 后处理节点
+│   │   ├── postprocess/             ← 后处理节点（YOLO 解码、NMS）
+│   │   ├── utils/                   ← 工具函数（绘图等）
 │   │   ├── engine/                  ← 引擎核心 + 线程池
 │   │   ├── server/                  ← 推理服务器
 │   │   └── trainer/                 ← 训练模块
 │   ├── src/                         ← 对应实现（.cpp/.cu）
 │   ├── cli/                         ← 命令行入口（6个exe）
 │   ├── gui/                         ← Qt 上位机
-│   ├── tests/                       ← GTest 测试（251个）
+│   ├── tests/                       ← GTest 测试（286个）
 │   ├── samples/                     ← 示例代码
 │   ├── scripts/                     ← Python 辅助脚本
 │   └── CMakeLists.txt               ← 构建配置
@@ -216,25 +217,34 @@ public:
     │     │     │
     │     │     ├─ PipelineImpl::Execute()
     │     │     │     │
-    │     │     │     ├─ 按拓扑排序遍历节点
-    │     │     │     ├─ 每个节点：node->Process(inputs, outputs)
-    │     │     │     │     │
-    │     │     │     │     ├─ ResizeNode::Process()    ← cv::resize
-    │     │     │     │     ├─ NormalizeNode::Process() ← 归一化
-    │     │     │     │     ├─ ModelNode::Process()     ← 调后端推理
-    │     │     │     │     │     │
-    │     │     │     │     │     ├─ BackendFactory::Create(type)
-    │     │     │     │     │     ├─ backend->Infer(inputs, outputs)
-    │     │     │     │     │     │     │
-    │     │     │     │     │     │     ├─ ONNXRuntimeBackend::Infer()
-    │     │     │     │     │     │     │     Ort::Session::Run()
-    │     │     │     │     │     │     │
-    │     │     │     │     │     │     ├─ LibTorchBackend::Infer()
-    │     │     │     │     │     │     │     module_->forward(ivInputs)
-    │     │     │     │     │     │     │
-    │     │     │     │     │     │     └─ TensorRTBackend (stub)
-    │     │     │     │     │
-    │     │     │     │     └─ NmsNode::Process()       ← 非极大值抑制
+│     │     │     ├─ 按拓扑排序遍历节点
+│     │     │     ├─ 每个节点：node->Process(inputs, outputs)
+│     │     │     │     │
+│     │     │     │     ├─ LetterboxNode::Process()  ← cv::resize + padding
+│     │     │     │     ├─ ModelNode::Process()     ← 调后端推理
+│     │     │     │     │     │
+│     │     │     │     │     ├─ BackendFactory::Create(type)
+│     │     │     │     │     ├─ backend->Infer(inputs, outputs)
+│     │     │     │     │     │     │
+│     │     │     │     │     │     ├─ ONNXRuntimeBackend::Infer()
+│     │     │     │     │     │     │     Ort::Session::Run()
+│     │     │     │     │     │     │
+│     │     │     │     │     │     ├─ LibTorchBackend::Infer()
+│     │     │     │     │     │     │     module_->forward(ivInputs)
+│     │     │     │     │     │     │
+│     │     │     │     │     │     └─ TensorRTBackend (stub)
+│     │     │     │     │
+│     │     │     │     ├─ YoloDecodeNode::Process() ← rawOutputs → 检测框
+│     │     │     │     │     支持 v5/v8/v11，DFL 解算 + 坐标逆变换
+│     │     │     │     │
+│     │     │     │     ├─ NmsNode::Process()       ← NMSCommon() 非极大值抑制
+│     │     │     │     │     NMSCommon（共享工具，IouBox 内联）
+│     │     │     │     │
+│     │     │     │     ├─ FusionNode::Process()    ← YOLO 检测 + PatchCore 异常评分
+│     │     │     │     │     两路输入：[detections, original_image]
+│     │     │     │     │     每检测框 → crop → backbone → MemoryBank NN → anomaly_score
+│     │     │     │     │
+│     │     │     │     └─ DrawRoiAnomaly() / DrawDetections() ← draw_utils.h 共享绘图工具
     │     │     │     │
     │     │     │     └─ 收集所有叶子节点输出 → Result
     │     │
@@ -251,21 +261,25 @@ public:
 ```json
 {
     "pipeline": {
-        "name": "demo",
+        "name": "yolo_patchcore_fusion",
         "max_concurrency": 4,
-        "enable_profiling": true,
         "nodes": [
-            {"id": "resize",    "type": "resize",    "params": {"width": "640", "height": "640"}},
-            {"id": "normalize", "type": "normalize", "params": {}},
+            {"id": "letterbox", "type": "letterbox", "params": {"width": "640", "height": "640"}},
             {"id": "detect",    "type": "model",     "model_path": "yolov8n.engine", "backend": "tensorrt"},
-            {"id": "nms",       "type": "nms",       "params": {"iou_threshold": "0.45"}}
+            {"id": "yolo_decode", "type": "yolo_decode",
+             "params": {"confidence_threshold": "0.5", "num_classes": "80", "version": "v8"}},
+            {"id": "nms",       "type": "nms",       "params": {"iou_threshold": "0.45", "confidence_threshold": "0.5"}},
+            {"id": "fusion",    "type": "fusion",
+             "params": {"backbone_type": "opencv_dnn", "model_path": "wideresnet.onnx",
+                        "memory_bank_path": "bank.bin", "anomaly_threshold": "0.5",
+                        "input_size": "224", "backbone_layers": "layer2,layer3"}}
         ],
         "edges": [
-            {"from": "input", "to": "resize"},
-            {"from": "resize", "to": "normalize"},
-            {"from": "normalize", "to": "detect"},
-            {"from": "detect", "to": "nms"},
-            {"from": "nms", "to": "output"}
+            {"from": "input",    "to": "letterbox"},
+            {"from": "letterbox", "to": "detect"},
+            {"from": "detect",   "to": "yolo_decode"},
+            {"from": "yolo_decode", "to": "nms"},
+            {"from": "nms",      "to": "fusion"}
         ]
     }
 }
@@ -275,52 +289,48 @@ public:
 
 ## 4. 重点实现文件（3 个）
 
-### 4.1 `src/config/pipeline_builder.cpp` — 管线构建器（90行）
+### 4.1 `src/config/pipeline_builder.cpp` — 管线构建器
 
 **职责**：根据 JSON 配置创建完整的处理器拓扑图。
 
 **关键逻辑**：
 ```cpp
-Status PipelineBuilder::Build(const PipelineConfig& config, ...) {
-    auto impl = std::make_unique<PipelineImpl>(pool);
+// 阶段一：按节点类型创建所有处理器
+for (auto& pc : config.nodes) {
+    std::shared_ptr<IProcessor> processor;
     
-    // 阶段一：按节点类型创建所有处理器
-    for (auto& pc : config.nodes) {
-        std::shared_ptr<IProcessor> processor;
-        
-        if (pc.type == "model") {
-            // 创建模型节点
-            auto backend = BackendFactory::Create(pc.backend);
-            ModelInfo info{...};
-            backend->Load(info);
-            processor = std::make_shared<ModelNode>(backend);
-        }
-        else if (pc.type == "resize") {
-            processor = std::make_shared<ResizeNode>(config);
-        }
-        else if (pc.type == "normalize") {
-            processor = std::make_shared<NormalizeNode>(config);
-        }
-        else if (pc.type == "nms") {
-            processor = std::make_shared<NmsNode>(config);
-        }
-        // ... 更多节点类型
+    if (pc.type == "model") {
+        auto backend = BackendFactory::Create(pc.backend);
+        ModelInfo info{...};
+        backend->Load(info);
+        processor = std::make_shared<ModelNode>(std::move(backend));
     }
+    else if (pc.type == "letterbox")      processor = std::make_shared<LetterboxNode>();
+    else if (pc.type == "yolo_decode")    processor = std::make_shared<YoloDecodeNode>();
+    else if (pc.type == "nms")            processor = std::make_shared<NmsNode>();
+    else if (pc.type == "patchcore")      processor = std::make_shared<PatchCoreNode>();
+    else if (pc.type == "multi_roi")      processor = std::make_shared<MultiRoiNode>();
+    else if (pc.type == "fusion")         processor = std::make_shared<FusionNode>();
+    else if (pc.type == "merge")          processor = std::make_shared<MergeNode>();
+    else if (pc.type == "composite")      processor = std::make_shared<CompositeNode>();
+    else if (pc.type == "resize")         processor = std::make_shared<ResizeNode>();
+    else if (pc.type == "normalize")      processor = std::make_shared<NormalizeNode>();
+    else return Error("unknown node type: " + pc.type);
     
-    // 阶段二：按 edges 建立节点间连接
-    for (auto& edge : config.edges) {
-        impl->Connect(fromNodeId, toNodeId);
-    }
-    
-    pipeline = std::move(impl);
-    return Status{};
+    processor->Init(pc.params);
+    impl->AddNode(pc.id, processor, {});
+}
+// 阶段二：按 edges 建立节点间连接
+for (auto& edge : config.edges) {
+    impl->AddEdge(edge.from, edge.to);
 }
 ```
 
 **阅读要点**：
 - 新增节点类型只需在 switch 中加一个分支
-- `BackendFactory::Create()` 根据字符串返回不同后端实现
-- 节点之间通过 ID 连接，形成有向无环图（DAG）
+- 节点通过 `AddNode(id, processor, inputs)` 注册 DAG 拓扑
+- `AddEdge(from, to)` 建立单向数据依赖
+- `PipelineBuilder` 包含 15+ 个头文件 — 是设计意图，它需要知道所有节点类型
 
 ### 4.2 `src/pipeline/pipeline_impl.cpp` — DAG 执行引擎
 
@@ -423,6 +433,23 @@ Status ModelNode::Process(const std::vector<Frame>& inputs,
 | `include/trainer/model/yolo_loss.h` | 损失函数 |
 | `src/trainer/data/yolo_data.cpp` | 数据增强 |
 | `include/trainer/training/yolo_trainer.h` | 训练循环 |
+
+### 主线 D：YOLO 推理管线 + PatchCore 融合
+
+| 文件 | 说明 |
+|------|------|
+| `include/preprocess/letterbox_node.h` | Letterbox 预处理（等比例缩放+填充） |
+| `include/postprocess/yolo_decode_node.h` | YOLO 解码（v5/v8/v11，DFL 解算） |
+| `include/postprocess/nms_node.h` | NMS 节点 |
+| `include/utils/draw_utils.h` | 绘图工具（DrawDetections / DrawRoiAnomaly） |
+| `include/pipeline/fusion_node.h` | YOLO+PatchCore 融合节点 |
+| `include/patchcore/patchcore_node.h` | PatchCoreNode 接口 |
+| `include/patchcore/memory_bank.h` | MemoryBank 特征存储 |
+| `include/patchcore/backbone.h` | IBackbone 抽象 |
+| `src/postprocess/nms_common.cpp` | NMS 共享工具（IouBox + NMSCommon） |
+| `src/preprocess/letterbox_node.cpp` | 等比例缩放 + 填充到目标尺寸 |
+| `src/postprocess/yolo_decode_node.cpp` | rawOutputs → 检测框解码 |
+| `src/pipeline/fusion_node.cpp` | 双路输入：detections + image → anomaly_score |
 
 ---
 
@@ -597,9 +624,13 @@ struct DetectImpl : torch::nn::Module {
 | 2 | `test_processor.cpp` | ~50 | IProcessor 接口用法 |
 | 3 | `test_backend_factory.cpp` | ~50 | 后端工厂模式 |
 | 4 | `test_inference_server.cpp` | ~170 | 推理服务器生命周期 |
-| 5 | `test_patchcore.cpp` | ~750 | PatchCore 全流程（最大） |
-| 6 | `test_yolo_model.cpp` | ~60 | YOLO 前向传播形状验证 |
-| 7 | `test_yolo_trainer.cpp` | ~166 | YOLO 训练循环 |
+| 5 | `test_letterbox_node.cpp` | ~40 | YOLO 预处理（Letterbox） |
+| 6 | `test_yolo_decode_node.cpp` | ~100 | YOLO 解码 + NMS 测试 |
+| 7 | `test_nms_node.cpp` | ~120 | NMSCommon（IouBox/NMSCommon/NmsNode 测试） |
+| 8 | `test_fusion_node.cpp` | ~50 | YOLO+PatchCore 融合节点 |
+| 9 | `test_patchcore.cpp` | ~750 | PatchCore 全流程（最大） |
+| 10 | `test_yolo_model.cpp` | ~60 | YOLO 前向传播形状验证 |
+| 11 | `test_yolo_trainer.cpp` | ~166 | YOLO 训练循环 |
 
 ### 8.2 如何读测试
 
@@ -693,18 +724,32 @@ cat aicore/cli/patchcore_train_main.cpp
 ### 10.3 追踪数据流
 
 ```
-Frame (cv::Mat)
+Frame (cv::Mat) → detections + rawOutputs + original image
   │
-  ├─ 进入 ResizeNode::Process()
-  │   └─ cv::resize(input.image, output.image, size)
+  ├─ 进入 LetterboxNode::Process()
+  │   └─ 等比例缩放 + 填充到 640×640，记录 scale/pad 到 roiMap
   │
   ├─ 进入 ModelNode::Process()
-  │   ├─ cv::Mat → Tensor (格式转换)
+  │   ├─ cv::Mat → Tensor (NCHW, float32)
   │   ├─ backend->Infer(Tensor → Tensor)
-  │   └─ Tensor → cv::Mat (格式转换)
+  │   └─ rawOutputs 写入 Frame
   │
-  └─ 进入 NmsNode::Process()
-      └─ 过滤重叠检测框
+  ├─ 进入 YoloDecodeNode::Process()
+  │   ├─ rawOutputs → DFL 解算 / sigmoid
+  │   ├─ 坐标逆变换（letterbox 反向）
+  │   └─ → detections（带 confidence 和 bbox）
+  │
+  ├─ 进入 NmsNode::Process()
+  │   ├─ NMSCommon() 按类别分组 + IouBox 去重
+  │   └─ → 过滤后的 detections
+  │
+  ├─ 进入 FusionNode::Process() [需要两路输入]
+  │   ├─ inputs[0].detections + inputs[1].image
+  │   ├─ 每框裁剪 → backbone.Extract → MemoryBank NN
+  │   └─ → enrich detections with anomaly_score + is_anomaly
+  │
+  └─ DrawDetections() [draw_utils.h]
+      └─ 在原图上叠加检测框 + 标签 + 异常得分
 ```
 
 ### 10.4 理解错误处理
@@ -744,11 +789,33 @@ if (!s) { /* 失败 */ }
 
 ```
 读实现文件，理解数据怎么流转：
-  1. src/config/pipeline_builder.cpp (90行)
+  1. src/config/pipeline_builder.cpp
   2. src/pipeline/pipeline_impl.cpp
   3. src/pipeline/model_node.cpp
 
 目标：理解 JSON 配置 → DAG 拓扑 → 节点执行的完整链路。
+```
+
+### Day 2.5（30分钟）：YOLO 推理管线
+
+```
+  1. include/preprocess/letterbox_node.h → src/preprocess/letterbox_node.cpp
+  2. include/postprocess/yolo_decode_node.h → src/postprocess/yolo_decode_node.cpp
+  3. src/postprocess/nms_common.cpp（NMSCommon 共享工具）
+  4. include/utils/draw_utils.h
+
+目标：理解 YOLO 检测 pipeline 完整数据流。
+```
+
+### Day 2.6（20分钟）：PatchCore 融合
+
+```
+  1. include/pipeline/fusion_node.h → src/pipeline/fusion_node.cpp
+  2. include/patchcore/backbone.h
+  3. include/patchcore/memory_bank.h
+  4. src/patchcore/multi_roi_node.cpp（DrawRoiAnomaly → draw_utils 改造点）
+
+目标：理解 YOLO 检测框 + PatchCore 异常评分的融合方式。
 ```
 
 ### Day 3（30分钟）：后端实现
@@ -768,7 +835,7 @@ if (!s) { /* 失败 */ }
 跑测试，确认理解正确：
   .\out\build\aicore\tests\Release\aicore_tests.exe
 
-看到 251/251 PASS 就对了。
+看到 286/286 PASS 就对了。
 ```
 
 ---
@@ -814,9 +881,9 @@ backend_factory.cpp → onnxruntime_backend.cpp
    - 拷贝 `Frame` 不会复制图像数据
    - 修改 `frame.image` 会影响所有引用
 
-4. **`pipeline_builder.cpp` 包含 13 个头文件**
+4. **`pipeline_builder.cpp` 包含 15+ 个头文件**
    - 这是设计意图，不是 bug
-   - 构建器需要知道所有节点类型
+   - 构建器需要知道所有节点类型（model / letterbox / yolo_decode / nms / fusion / merge...）
    - 新增节点只需加 switch 分支 + include
 
 5. **`onnxruntime_backend.cpp` 中的 `new float[]`**
@@ -861,12 +928,18 @@ ctest --preset debug
 ### 调试
 
 ```powershell
-# 只跑某个测试
+# 只跑某个测试套件
 .\out\build\aicore\tests\Release\aicore_tests.exe --gtest_filter="PipelineBuilderTest.*"
 
 # 看详细输出
 .\out\build\aicore\tests\Release\aicore_tests.exe --gtest_print_time=1
 
-# 跑 YOLO 相关测试
-.\out\build\aicore\tests\Release\aicore_tests.exe --gtest_filter="YOLO*"
+# 跑 YOLO 相关测试（含推理管线）
+.\out\build\aicore\tests\Release\aicore_tests.exe --gtest_filter="*YOLO*:*Yolo*:*Letterbox*:*Nms*:*NMS*"
+
+# 跑 FusionNode 测试
+.\out\build\aicore\tests\Release\aicore_tests.exe --gtest_filter="*Fusion*"
+
+# 跑 PatchCore 测试
+.\out\build\aicore\tests\Release\aicore_tests.exe --gtest_filter="*PatchCore*:*ROI*:*MemoryBank*:*Roi*"
 ```
