@@ -21,9 +21,6 @@ private:
                      float scale, int padX, int padY,
                      std::vector<NodeResult>& candidates) const;
 
-    static void NMS(std::vector<NodeResult>& candidates,
-                    float iouThreshold);
-
     std::string versionStr_ = "v8";
     float confidenceThreshold_ = 0.5f;
     float iouThreshold_ = 0.45f;

@@ -136,47 +136,6 @@ void YoloDecodeNode::DecodeScale(
     }
 }
 
-void YoloDecodeNode::NMS(std::vector<NodeResult>& candidates,
-                          float iouThreshold) {
-    if (candidates.empty()) return;
-
-    std::sort(candidates.begin(), candidates.end(),
-              [](const auto& a, const auto& b) { return a.confidence > b.confidence; });
-
-    std::vector<bool> keep(candidates.size(), true);
-    for (size_t i = 0; i < candidates.size(); i++) {
-        if (!keep[i]) continue;
-        const auto& ai = candidates[i].bbox;
-        float ax1 = ai.x - ai.w / 2, ay1 = ai.y - ai.h / 2;
-        float ax2 = ai.x + ai.w / 2, ay2 = ai.y + ai.h / 2;
-
-        for (size_t j = i + 1; j < candidates.size(); j++) {
-            if (!keep[j]) continue;
-            if (candidates[i].label != candidates[j].label) continue;
-
-            const auto& bj = candidates[j].bbox;
-            float bx1 = bj.x - bj.w / 2, by1 = bj.y - bj.h / 2;
-            float bx2 = bj.x + bj.w / 2, by2 = bj.y + bj.h / 2;
-
-            float ix = std::max(0.0f, std::min(ax2, bx2) - std::max(ax1, bx1));
-            float iy = std::max(0.0f, std::min(ay2, by2) - std::max(ay1, by1));
-            float inter = ix * iy;
-            float areaA = ai.w * ai.h, areaB = bj.w * bj.h;
-            float iou = inter / (areaA + areaB - inter + 1e-6f);
-
-            if (iou > iouThreshold)
-                keep[j] = false;
-        }
-    }
-
-    size_t writeIdx = 0;
-    for (size_t i = 0; i < candidates.size(); i++) {
-        if (keep[i])
-            candidates[writeIdx++] = std::move(candidates[i]);
-    }
-    candidates.resize(writeIdx);
-}
-
 Status YoloDecodeNode::Process(const std::vector<Frame>& inputs,
                                 std::vector<Frame>& outputs) {
     if (inputs.empty())
@@ -211,8 +170,6 @@ Status YoloDecodeNode::Process(const std::vector<Frame>& inputs,
                         numClasses_, scale, (int)padX, (int)padY,
                         allCandidates);
         }
-
-        NMS(allCandidates, iouThreshold_);
 
         Frame out;
         out.frameId = frame.frameId;

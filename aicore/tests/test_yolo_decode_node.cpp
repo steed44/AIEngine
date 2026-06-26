@@ -152,7 +152,8 @@ TEST(YoloDecodeNodeTest, NMSRemovesOverlap) {
     std::vector<Frame> outputs;
     ASSERT_TRUE(node.Process(inputs, outputs));
 
-    EXPECT_EQ(outputs[0].detections.size(), 2);
+    // decode 不再做 NMS，3 个候选框全部透传
+    EXPECT_EQ(outputs[0].detections.size(), 3);
 }
 
 // YOLOv5 格式: [cx, cy, w, h, cls0..clsn-1]
