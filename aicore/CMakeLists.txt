@@ -111,6 +111,12 @@ if(Torch_FOUND)
 endif()
 target_compile_definitions(aicore PRIVATE AICORE_EXPORTS)
 
+# OpenMP 并行化：NN 搜索、Coreset 采样等计算密集型循环
+find_package(OpenMP)
+if(OpenMP_CXX_FOUND)
+    target_link_libraries(aicore PRIVATE OpenMP::OpenMP_CXX)
+endif()
+
 # ──────────────────────────────────────────────
 # 模型优化工具 DLL (aicore_optimizer.dll)
 # ──────────────────────────────────────────────

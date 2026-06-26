@@ -1,6 +1,23 @@
 // ============================================================
 // pipeline_impl.cpp — 流水线引擎核心实现
 // 管理 DAG 图的构建、拓扑执行与异步调度
+//
+// DAG 执行引擎设计：
+//
+// 节点编排（Node Chaining）：
+//   input → [nodeA] → [nodeB (依赖 A)] → [nodeC (依赖 B)] → output
+//   每个节点从 nodeInputs 收集上游输出帧，处理后存入 nodeOutputs。
+//   下一轮将 nodeOutputs 整体移为 nodeInputs，形成数据链。
+//
+// 并行调度（Round-Robin + Parallel）：
+//   每轮扫描 nodes_，收集所有输入已就绪的节点；
+//   就绪节点 > 1 时通过 ThreadPool 并发执行；
+//   每个并发执行的节点通过 outputsMutex 保护 nodeOutputs 写操作。
+//
+// 线程安全模型：
+//   nodeInputs/Outputs 在主循环线程写入，工作线程只读（已就绪的数据）；
+//   ExecuteNode 内部写 nodeOutputs 时通过 outputsMutex 互斥；
+//   每个节点的 status/processed 在 futures.get() 后主线程串行更新。
 // ============================================================
 #include "pipeline/pipeline_impl.h"
 #include "config/config_parser.h"
@@ -182,32 +199,56 @@ Status PipelineImpl::Execute(const Frame& input, Result& output) {
     std::map<std::string, NodeMetric> metrics;
     bool complete = true;
 
-    // 主循环：反复扫描，每轮并行执行所有就绪节点
-    while (true) {
-        // 收集本轮就绪节点
-        std::vector<std::string> readyIds;
-        for (auto& [id, node] : nodes_) {
-            if (node.processed) continue;
-            bool allInputsReady = true;
-            for (auto& inId : node.inputs) {
-                if (!inId.empty() && nodeInputs.find(inId) == nodeInputs.end()) {
-                    allInputsReady = false;
-                    break;
-                }
-            }
-            if (allInputsReady) readyIds.push_back(id);
+    // 主循环：Kahn 拓扑排序 + 并行调度
+    //
+    // Kahn 算法 vs 轮询推进：
+    //   轮询推进：每轮扫描所有未处理节点 → O(V²) 总复杂度
+    //   Kahn 算法：维护入度计数，节点就绪时入队 → O(V+E) 总复杂度
+    //
+    // 本实现保留了轮询推进的兼容性（支持动态跳过节点），
+    // 但改用入度计数驱动就绪检测，减少无效扫描。
+    //
+    // 算法步骤：
+    //   1. 初始化：entryNodes 入度为 0，入 readyQueue
+    //   2. 循环：从 readyQueue 取节点 → 执行 → 完成后
+    //      对每个下游节点减少入度 → 入度归零则入队
+    //   3. 所有节点 processed 时退出
+    //
+    // 并行执行：同一拓扑层（同时入队的节点）可并行执行
+    // 因为它们的输入都已就绪，互不依赖。
+
+    // 入度计数：每个节点的未就绪上游节点数
+    std::unordered_map<std::string, int> inDegree;
+    for (auto& [id, node] : nodes_) {
+        int degree = 0;
+        for (auto& inId : node.inputs) {
+            if (!inId.empty() && inId != "input") degree++;
         }
+        inDegree[id] = degree;
+    }
 
-        if (readyIds.empty()) break;  // 死锁或全部完成
+    // 就绪队列：入度为 0 的节点
+    std::vector<std::string> readyQueue;
+    for (auto& entry : entryNodes_) {
+        if (entry != "input") {
+            readyQueue.push_back(entry);
+            // entry 节点入度应为 0（已验证）
+        }
+    }
 
-        // 并行：就绪节点数 > 1 且有线程池时走并行，否则退化串行
-        if (readyIds.size() > 1 && threadPool_) {
+    // Kahn 主循环：按拓扑层推进
+    while (!readyQueue.empty()) {
+        std::vector<std::string> currentLayer = std::move(readyQueue);
+        readyQueue.clear();
+
+        // 并行：同层节点无依赖，可并发执行
+        if (currentLayer.size() > 1 && threadPool_) {
             std::mutex outputsMutex;
             std::atomic<bool> failed{false};
             std::vector<std::future<Status>> futures;
-            futures.reserve(readyIds.size());
+            futures.reserve(currentLayer.size());
 
-            for (auto& id : readyIds) {
+            for (auto& id : currentLayer) {
                 futures.push_back(threadPool_->Enqueue([&, id]() -> Status {
                     if (failed.load()) return Status{StatusCode::ErrorInternal, ""};
                     auto s = ExecuteNode(id, nodeInputs, nodeOutputs,
@@ -219,10 +260,17 @@ Status PipelineImpl::Execute(const Frame& input, Result& output) {
                 }));
             }
 
-            for (size_t i = 0; i < readyIds.size(); i++) {
+            for (size_t i = 0; i < currentLayer.size(); i++) {
                 auto s = futures[i].get();
                 if (s || s.code == StatusCode::Skip) {
-                    nodes_[readyIds[i]].processed = true;
+                    nodes_[currentLayer[i]].processed = true;
+                    // 下游节点入度减 1，归零则入队
+                    for (auto& outId : nodes_[currentLayer[i]].outputs) {
+                        inDegree[outId]--;
+                        if (inDegree[outId] <= 0) {
+                            readyQueue.push_back(outId);
+                        }
+                    }
                 } else {
                     output.status = s.code;
                     output.errorMsg = s.message;
@@ -230,8 +278,8 @@ Status PipelineImpl::Execute(const Frame& input, Result& output) {
                 }
             }
         } else {
-            // 串行退化路径（单节点就绪或无线程池）
-            for (auto& id : readyIds) {
+            // 串行路径（单节点或无线程池）
+            for (auto& id : currentLayer) {
                 auto s = ExecuteNode(id, nodeInputs, nodeOutputs,
                                      metrics, input.timestamp);
                 if (!s) {
@@ -241,18 +289,21 @@ Status PipelineImpl::Execute(const Frame& input, Result& output) {
                     break;
                 }
                 nodes_[id].processed = true;
+                // 下游节点入度减 1，归零则入队
+                for (auto& outId : nodes_[id].outputs) {
+                    inDegree[outId]--;
+                    if (inDegree[outId] <= 0) {
+                        readyQueue.push_back(outId);
+                    }
+                }
             }
         }
 
         if (!complete) break;
 
+        // 本层输出 → 下层输入
         nodeInputs = std::move(nodeOutputs);
-
-        bool allProcessed = true;
-        for (auto& [id, node] : nodes_) {
-            if (!node.processed) { allProcessed = false; break; }
-        }
-        if (allProcessed) break;
+        nodeOutputs.clear();
     }
 
     auto end = std::chrono::steady_clock::now();

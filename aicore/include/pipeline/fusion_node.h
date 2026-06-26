@@ -1,3 +1,4 @@
+// FusionNode — YOLO 检测 + PatchCore 异常评分融合头文件
 #pragma once
 #include "core/processor.h"
 #include "patchcore/backbone.h"
@@ -34,17 +35,26 @@ public:
 
     void SetThreadPool(ThreadPool* pool) override;
 
+    /**
+     * 批量推理：将所有 ROI crops 堆叠为 batch tensor，单次 backbone 提取特征
+     * @param fullImage 完整图像
+     * @param detections 检测框列表
+     * @return 每个检测框的异常得分向量
+     */
+    std::vector<float> ProcessBatch(const cv::Mat& fullImage,
+                                     const std::vector<NodeResult>& detections);
+
 private:
     Status ProcessOneRoi(const cv::Mat& fullImage, const BBox& bbox,
                          float& outScore, cv::Mat& outHeatmap);
 
-    std::unique_ptr<IBackbone> backbone_;
-    MemoryBank memoryBank_;
-    std::string nodeId_;
-    float anomalyThreshold_ = 0.5f;
-    int inputSize_ = 224;
-    bool initialized_ = false;
-    ThreadPool* threadPool_ = nullptr;
+    std::unique_ptr<IBackbone> backbone_;     // 特征提取 backbone（opencv_dnn/libtorch）
+    MemoryBank memoryBank_;                    // 训练阶段保存的正常样本特征库
+    std::string nodeId_;                       // 节点在 DAG 中的唯一标识
+    float anomalyThreshold_ = 0.5f;            // 异常判定阈值（得分超过此值标记为异常）
+    int inputSize_ = 224;                      // backbone 输入图像尺寸（宽高相同）
+    bool initialized_ = false;                 // Init 是否成功
+    ThreadPool* threadPool_ = nullptr;         // 外部注入的线程池（多 ROI 并行加速）
 };
 
 } // namespace aicore

@@ -141,6 +141,13 @@ size_t MemoryBank::NearestNeighbor(const std::vector<float>& query, float& distO
     if (bank_.empty()) { distOut = 0; return 0; }
     size_t bestIdx = 0;
     float bestDist = std::numeric_limits<float>::max();
+
+    // OpenMP 并行：每个 bank entry 的 L2 距离计算独立，可并行归约
+    // #pragma omp parallel for reduction(min:bestDist) schedule(dynamic, 256)
+    //   - reduction(min:bestDist) 各线程局部 bestDist 取最小值后合并
+    //   - schedule(dynamic, 256) 动态分块，避免长尾效应
+    // NOTE: 当前注释掉，编译时需确认 OpenMP 可用后再启用
+    // #pragma omp parallel for reduction(min:bestDist) schedule(dynamic, 256)
     for (size_t i = 0; i < bank_.size(); i++) {
         float d = 0;
         for (int j = 0; j < featureDim_; j++) {
@@ -239,13 +246,8 @@ std::vector<float> MemoryBank::ComputeAnomalyMap(
         cv::Mat upsampled;
         cv::resize(layerMap, upsampled, cv::Size(imgW, imgH), 0, 0, cv::INTER_LINEAR);
 
-        for (int r = 0; r < imgH; r++) {
-            float* fr = fused.ptr<float>(r);
-            float* ur = upsampled.ptr<float>(r);
-            for (int c = 0; c < imgW; c++) {
-                if (ur[c] > fr[c]) fr[c] = ur[c];
-            }
-        }
+        // 逐像素 max-fusion，用 cv::max 替代标量循环（SIMD 加速）
+        cv::max(fused, upsampled, fused);
     }
 
     std::vector<float> result(imgW * imgH);
