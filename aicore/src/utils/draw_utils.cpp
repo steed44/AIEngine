@@ -1,7 +1,28 @@
 #include "utils/draw_utils.h"
 
+// ============================================================
+// draw_utils.cpp — 检测结果绘制工具
+// 功能：在图像上绘制 YOLO 检测框、PatchCore ROI 异常覆盖、
+//       标签、得分等可视化信息。
+//
+// 绘制内容：
+//   DrawDetections — 绘制目标检测结果，支持异常颜色编码
+//   DrawRoiAnomaly — 绘制 ROI 异常判定结果
+// ============================================================
+
 namespace aicore {
 
+// 绘制检测结果：边界框 + 标签 + 置信度 + 异常得分
+// 对每个检测结果：
+//   1. 根据异常得分选择颜色（异常=红，正常=绿，默认=青）
+//   2. 绘制矩形边界框
+//   3. 绘制标签背景矩形 + 文本
+//   4. 文本包含：类别名、置信度百分比、异常得分
+//
+// 标签定位自适应：默认在框上方，若框太靠上则移到底部显示
+// @param image      目标图像（直接修改）
+// @param detections 检测结果列表
+// @param opts       绘制选项（颜色、字体大小、粗细等）
 void DrawDetections(cv::Mat& image,
                     const std::vector<NodeResult>& detections,
                     const DrawOptions& opts) {
@@ -46,6 +67,17 @@ void DrawDetections(cv::Mat& image,
     }
 }
 
+// 绘制单 ROI 异常判定结果
+// 用途：多 ROI 推理模式下，为每个 ROI 区域绘制判定边框和标签
+// 显示格式："{label}: OK/NG {score}%"
+//   - OK = 正常（绿色边框）
+//   - NG = 异常（红色边框）
+// @param image     目标图像
+// @param rect      ROI 区域坐标
+// @param label     ROI 名称标签
+// @param score     异常得分
+// @param isAnomaly 是否为异常
+// @param opts      绘制选项
 void DrawRoiAnomaly(cv::Mat& image, const cv::Rect& rect,
                     const std::string& label, float score,
                     bool isAnomaly, const DrawOptions& opts) {

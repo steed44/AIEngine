@@ -1,4 +1,9 @@
 // 复合节点 — 将子流水线嵌入到父流水线中作为一个节点
+//
+// 分层设计：
+//   父流水线 DAG 中的节点可以是一条完整的子流水线。
+//   子流水线内部也有自己的 DAG 拓扑和执行器。
+//   这种递归嵌套支持复杂场景的模块化组合。
 #pragma once
 #include "core/processor.h"
 #include "core/pipeline.h"

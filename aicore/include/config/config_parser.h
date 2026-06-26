@@ -1,5 +1,25 @@
 // pipeline 配置解析与序列化
 // 提供 JSON 格式配置的解析和序列化能力，将配置转换为 PipelineConfig 结构体
+//
+// JSON 配置格式示例：
+// {
+//   "pipeline": {
+//     "name": "yolo_demo",
+//     "max_concurrency": 4,
+//     "enable_profiling": true,
+//     "nodes": [
+//       {"id": "resize", "type": "resize", "params": {"width": "640", "height": "640"}},
+//       ...
+//     ],
+//     "edges": [
+//       {"from": "input", "to": "resize"},
+//       ...
+//     ]
+//   }
+// }
+//
+// 设计说明：使用 JSON 作为配置格式，便于人类阅读和版本控制。
+//   内部使用 PipelineConfig 结构体表示，避免运行时 JSON 解析开销。
 #pragma once
 #include "core/types.h"
 #include "core/model_backend.h"
@@ -44,14 +64,19 @@ public:
     // @param jsonStr JSON 格式的配置字符串
     // @param config  解析结果（引用传出）
     // @return 成功返回 Status::kOk
+    // 前置条件：jsonStr 是合法的 JSON 格式（非空）
+    // 后置条件：成功时 config 填充所有节点和边信息；失败时 config 不变
+    // 解析策略：先整体解析 JSON 结构，再逐字段校验，遇错立即返回
     Status Parse(const std::string& jsonStr, PipelineConfig& config);
     // 将 PipelineConfig 结构体序列化为 JSON 字符串
     // @param config  pipeline 配置结构体
     // @param jsonStr 输出的 JSON 字符串（引用传出）
     // @return 成功返回 Status::kOk
+    // 使用场景：调试输出或保存运行时的 pipeline 配置快照
     Status Serialize(const PipelineConfig& config, std::string& jsonStr);
     // 获取上次操作（Parse/Serialize）的错误信息
     // @return 错误描述字符串，无错误时返回空字符串
+    // 注意：错误信息在一次新的操作后会被重置覆盖
     std::string GetLastError() const;
 
 private:

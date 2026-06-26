@@ -1,5 +1,15 @@
 // AI 引擎单例实现
 // 管理 pipeline 的初始化、执行、异步调度和资源释放
+//
+// 引擎生命周期：
+//   1. Init(configJson)   — 解析 JSON → PipelineBuilder 创建 DAG → 初始化 EnginePool
+//   2. Execute/Async      — 同步/异步推理，线程安全（mutex 保护）
+//   3. Shutdown()         — 停止 Pipeline → 释放 EnginePool
+//
+// EnginePool 管理：
+//   所有模型后端（TensorRT/ONNX/LibTorch）通过 EnginePool 池化复用。
+//   PipelineBuilder 在构建时从 EnginePool 分配后端，避免重复加载模型。
+//   池满策略：超出 maxEngines 的释放直接丢弃（非 LRU，简单实现）。
 #include "engine/ai_engine.h"
 #include "config/config_parser.h"
 #include "config/pipeline_builder.h"

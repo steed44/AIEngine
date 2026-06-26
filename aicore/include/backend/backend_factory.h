@@ -1,5 +1,15 @@
 // 推理后端工厂类
 // 根据后端类型创建对应的 IModelBackend 实例
+//
+// 设计模式：简单工厂（Simple Factory）
+//   BackendFactory::Create() 根据 BackendType 返回对应的后端实现
+//   （TensorRT/ONNX Runtime/LibTorch），调用方无需关心具体子类名
+//
+// 条件编译策略：
+//   - TensorRT 后端当前为 Stub（待完整实现）
+//   - ONNX Runtime 后端仅在 AICORE_USE_ONNXRUNTIME 定义时编译真实实现
+//   - LibTorch 后端仅在 AICORE_HAS_LIBTORCH 定义时编译真实实现
+//   未启用的后端返回 Stub，调用时返回明确的"未实现"错误
 #pragma once
 #include "core/model_backend.h"
 #include <memory>

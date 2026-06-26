@@ -55,11 +55,17 @@ public:
     //   - config_path: MultiRoiConfig JSON 路径（必需）
     //   - per_image_rois_dir: 每图 ROI JSON 目录（每图模式必需）
     //   - draw_overlay: 是否在原图绘制检测结果（可选，"true"/"false"）
+    // 前置条件：config 包含 "config_path" 键，指向有效 JSON
+    // 后置条件：backbone_ 和 slots_ 初始化完毕，Process() 就绪
+    // 线程安全：非线程安全，应在 pipeline 构建阶段单线程调用
     Status Init(const NodeConfig& config) override;
 
     // 推理一帧大图：遍历所有 ROI，执行裁剪→提取→比对→叠加
-    // @param inputs  输入帧列表（取第一帧）
-    // @param outputs 输出帧列表（追加结果帧）
+    // @param inputs  输入帧列表（取 inputs[0] 作为大图）
+    // @param outputs 输出帧列表（追加结果帧，包含 ROI 叠加图）
+    // 前置条件：Init() 已成功调用，inputs 非空且第一帧 image 非空
+    // 后置条件：outputs 末尾追加包含 ROI 绘制结果的 Frame
+    // 线程安全：支持 ThreadPool 并行处理多个 ROI 的 ProcessOneRoi 调用
     Status Process(const std::vector<Frame>& inputs,
                    std::vector<Frame>& outputs) override;
 
@@ -77,22 +83,28 @@ public:
 
 private:
     // 为单个 ROI 执行推理（裁剪 → 提取 → 比对）
+    // @param fullImage  原始大图
+    // @param slot       ROI 推理上下文（包含裁剪矩形和 MemoryBank）
+    // @param outScore   [out] 该 ROI 的异常得分
+    // @param outHeatmap [out] 该 ROI 的异常热力图（对应裁剪区域尺寸）
+    // 前置条件：fullImage 非空，slot 已初始化
+    // 后置条件：outScore 填充异常得分，outHeatmap 可选
     Status ProcessOneRoi(const cv::Mat& fullImage,
                          const RoiModelSlot& slot,
                          float& outScore, cv::Mat& outHeatmap);
 
     // 在原图上绘制 ROI 矩形框和异常信息
-    // @param image   [in/out] 要绘制的大图
-    // @param slot    ROI 信息
-    // @param score   异常得分
+    // @param image   [in/out] 要绘制的大图（直接修改此图像）
+    // @param slot    ROI 信息（包含裁剪矩形）
+    // @param score   异常得分（显示在 ROI 框旁）
 
 
     std::string name_ = "multi_roi";
-    std::unique_ptr<IBackbone> backbone_;      // 共享 backbone（所有 ROI 共用）
-    std::vector<RoiModelSlot> slots_;          // 各 ROI 的推理上下文
-    MultiRoiConfig config_;                    // 完整配置
-    bool drawOverlay_ = true;                  // 是否在原图上绘制检测结果
-    ThreadPool* threadPool_ = nullptr;         // 线程池引用（并行推理 ROIs）
+    std::unique_ptr<IBackbone> backbone_;      // 共享 backbone（所有 ROI 共用，仅加载一次）
+    std::vector<RoiModelSlot> slots_;          // 各 ROI 的推理上下文（含独立 MemoryBank 和阈值）
+    MultiRoiConfig config_;                    // 完整配置（从 JSON 解析）
+    bool drawOverlay_ = true;                  // 是否在原图上绘制检测结果（ROI 框 + 异常分数）
+    ThreadPool* threadPool_ = nullptr;         // 线程池引用（用于并行处理多个 ROI 的推理）
 };
 
 } // namespace aicore

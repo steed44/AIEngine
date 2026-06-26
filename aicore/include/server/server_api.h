@@ -1,3 +1,7 @@
+// 推理服务器 C API — 对外暴露模型加载/卸载/推理接口
+//
+// 所有函数使用 C 调用约定（extern "C"），便于 Python CFFI / C# P/Invoke 等跨语言绑定。
+// 错误处理：返回 int（0=成功，-1=失败），错误详情通过 errorOut 参数返回。
 #pragma once
 #include "api/aicore_api.h"
 

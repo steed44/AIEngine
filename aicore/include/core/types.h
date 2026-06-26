@@ -7,6 +7,9 @@
 // - 通用张量结构 Tensor
 // - 状态码与错误状态
 // - 检测框、检测结果、节点指标等推理输出结构
+//
+// 依赖关系：types.h 被所有其他头文件引用，是整个引擎的类型基础
+// 设计原则：不依赖其他内部头文件，仅依赖标准库和 OpenCV 核心类型
 // ============================================================
 
 #pragma once
@@ -44,13 +47,24 @@ namespace aicore {
 #endif
 
 // 内存位置类型：CPU 内存 / GPU 显存 / 固定内存（pinned memory，用于加速 CPU↔GPU 传输）
+// kPinned：页锁定内存，cudaHostAlloc 分配，用于异步 DMA 传输
+// kGPU：显存，cudaMalloc 分配，由 MemoryManager 统一管理
+// kCPU：常规堆内存，new/malloc 分配
 enum class MemoryType { kCPU, kGPU, kPinned };
 
 // 张量数据类型
+// kUInt8：   8位无符号整数（图像输入、INT8 量化模型）
+// kFloat32： 32位浮点数（主流推理精度，默认选择）
+// kFloat16： 16位浮点数（FP16 加速，TensorRT 支持）
 enum class DataType { kUInt8, kFloat32, kFloat16 };
 
 // 通用张量结构，是引擎内部传递数据的基本单元
 // 通过裸指针 data 指向实际内存，配合 shape/dtype/bytes 描述数据布局
+//
+// 所有权规则：
+//   allocId == 0：data 由外部管理，Tensor 只引用不拥有
+//   allocId == 1：data 由后端分配（new float[]），调用方需 delete[] 释放
+//   allocId > 1： data 由 MemoryManager 管理，通过 Free(allocId) 归还
 struct Tensor {
     DataType dtype = DataType::kFloat32;      // 数据类型
     std::vector<int64_t> shape;               // 形状（如 {N, C, H, W}）
@@ -62,23 +76,41 @@ struct Tensor {
 
 // 引擎全局状态码枚举
 // 覆盖推理全链路中所有可能的成功/失败场景，便于上层统一错误处理
+//
+// 错误处理模式：所有可能失败的函数返回 Status（OK | Skip | Error*），
+//   调用方通过 if (status) 或 status.code 判断是否成功。
+//   错误信息通过 status.message 获取详细描述。
+//
+// 状态码按阶段分类：
+//   OK/Skip     — 正常状态（0~1）
+//   Config      — 配置相关错误（10~19）
+//   Model       — 模型相关错误（20~29）
+//   Pre/Post    — 前后处理错误（30~39）
+//   Resource    — 资源不足错误（40~49）
+//   Runtime     — 运行时错误（50~59）
 enum class StatusCode {
-    OK = 0,                  // 成功
-    Skip,                    // 节点跳过（如条件分支不满足时）
-    ErrorConfigParse,        // 配置文件解析失败
-    ErrorModelLoad,          // 模型加载失败
-    ErrorModelInfer,         // 模型推理失败
-    ErrorPreprocess,         // 预处理失败
-    ErrorPostprocess,        // 后处理失败
-    ErrorResourceExhaust,    // 资源耗尽（显存/内存不足）
-    ErrorTimeout,            // 推理超时
-    ErrorInvalidInput,       // 输入数据无效
-    ErrorInternal,           // 内部未知错误
-    ErrorGpuDevice           // GPU 设备错误（驱动/设备丢失）
+    OK = 0,                  // 成功：操作正常完成
+    Skip,                    // 节点跳过：条件分支不满足时主动跳过当前节点
+    ErrorConfigParse,        // 配置文件解析失败：JSON 格式错误或缺少必要字段
+    ErrorModelLoad,          // 模型加载失败：文件不存在、格式不兼容或设备不匹配
+    ErrorModelInfer,         // 模型推理失败：推理框架内部错误（如形状不匹配）
+    ErrorPreprocess,         // 预处理失败：图像解码、缩放、归一化等预处理步骤出错
+    ErrorPostprocess,        // 后处理失败：NMS、解码、阈值筛选等后处理步骤出错
+    ErrorResourceExhaust,    // 资源耗尽：GPU 显存不足或系统内存不足
+    ErrorTimeout,            // 推理超时：超过预设的时间阈值仍未完成
+    ErrorInvalidInput,       // 输入数据无效：空图像、格式不支持或尺寸异常
+    ErrorInternal,           // 内部未知错误：未分类的运行时错误
+    ErrorGpuDevice           // GPU 设备错误：CUDA 驱动问题或设备丢失
 };
 
 // 统一状态返回结构，引擎中所有可能失败的函数均返回此类型
 // 支持 bool 隐式转换：if (status) 等价于 status.code == OK
+//
+// 使用模式：
+//   Status s = DoSomething();
+//   if (!s) { LOG_ERROR << s.message; return s; }
+//   // 或
+//   RETURN_IF_ERROR(DoSomething());
 struct Status {
     StatusCode code = StatusCode::OK;   // 状态码
     std::string message;                // 错误描述信息
@@ -111,9 +143,10 @@ struct NodeMetric {
 };
 
 // 流水线一次推理的完整输出结果
+// 包含所有检测节点的输出、各节点性能指标和整体执行状态
 struct Result {
-    uint64_t timestamp = 0;                      // 推理时间戳（毫秒）
-    double totalLatencyMs = 0;                   // 流水线总耗时（毫秒）
+    uint64_t timestamp = 0;                      // 推理时间戳（毫秒，steady_clock）
+    double totalLatencyMs = 0;                   // 流水线总耗时（毫秒，端到端）
     std::vector<NodeResult> detections;          // 所有检测节点输出的检测结果
     std::map<std::string, NodeMetric> nodeMetrics;  // 各节点性能指标（key = nodeId）
     StatusCode status = StatusCode::OK;          // 整体执行状态

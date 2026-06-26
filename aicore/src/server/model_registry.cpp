@@ -1,9 +1,18 @@
+// 模型注册表 — 多版本模型管理 + 引用计数 + LRU 淘汰
+//
+// 设计要点：
+//   通过 shared_ptr + 原子引用计数（refCount）追踪活跃推理请求。
+//   GetActive 递增 refCount，Release 递减。
+//   Replace 原子交换 backend 指针，等待旧引用归零后释放。
+//   EvictLRU 按 lastUsedTime 排序，淘汰最久未使用的模型，用于显存压力管理。
 #include "server/model_registry.h"
 #include <algorithm>
 #include <sstream>
 
 namespace aicore {
 
+// 获取模型槽位（refCount +1），推理结束后必须 Release
+// 返回 shared_ptr 持有 ModelSlot，即使被 Replace 也能安全使用旧 backend
 std::shared_ptr<ModelSlot> ModelRegistry::GetActive(const std::string& name) {
     std::shared_lock lock(rwLock_);
     auto it = slots_.find(name);
@@ -16,6 +25,8 @@ std::shared_ptr<ModelSlot> ModelRegistry::GetActive(const std::string& name) {
     return slot;
 }
 
+// 释放模型槽位（refCount -1），与 GetActive 配对使用
+// refCount 降为 0 后 slot 可以被 EvictLRU 淘汰或 Replace 交换
 void ModelRegistry::Release(const std::shared_ptr<ModelSlot>& slot) {
     if (slot) {
         slot->refCount.fetch_sub(1);
@@ -33,6 +44,8 @@ int ModelRegistry::GetVersion(const std::string& name) const {
     return it != slots_.end() ? it->second->version : 0;
 }
 
+// 热替换模型后端：等待旧推理完成后原子交换 backend 指针
+// 原子安全：持有 swapMutex 时等待 refCount 归零，确保无活跃推理
 Status ModelRegistry::Replace(const std::string& name,
                                std::unique_ptr<IModelBackend> newBackend,
                                size_t vramMB, int newVersion) {
@@ -67,6 +80,8 @@ Status ModelRegistry::Replace(const std::string& name,
     return Status{};
 }
 
+// LRU 淘汰：释放最久未使用的模型以回收显存
+// 仅淘汰 refCount == 0 的模型（无活跃推理时才能安全释放）
 Status ModelRegistry::EvictLRU(size_t neededMB) {
     std::unique_lock lock(rwLock_);
     std::vector<std::pair<uint64_t, std::string>> candidates;
@@ -96,6 +111,8 @@ void ModelRegistry::Unload(const std::string& name) {
     slots_.erase(name);
 }
 
+// 列出所有已加载模型，返回 JSON 数组格式
+// 每个元素包含 name/version/refCount/vramMB 字段
 std::string ModelRegistry::List() const {
     std::shared_lock lock(rwLock_);
     std::ostringstream json;

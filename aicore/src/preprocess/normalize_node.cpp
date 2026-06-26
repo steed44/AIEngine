@@ -1,6 +1,23 @@
 // ============================================================
 // normalize_node.cpp — 图像归一化预处理节点
-// BGR→RGB 转换、像素缩放到 [0,1]、减均值除方差
+//
+// 功能：将输入图像的像素值归一化到模型预期的输入分布。
+// 包含三个步骤：BGR→RGB 转换 → uint8→float32 缩放 → (x-mean)/std 标准化。
+//
+// 归一化对深度学习模型的重要性：
+//   1. 数值稳定性：输入分布在 [0,1] 附近可避免激活函数饱和区
+//      （如 sigmoid 在 |x|>5 时梯度几乎为 0，tanh 在 |x|>3 时饱和）
+//   2. 加速收敛：各通道数据尺度统一后，SGD/Adam 的学习步长
+//      在各维度上更均衡，无需为不同通道设置不同学习率
+//   3. 跨数据集一致性：消除亮度/对比度差异导致的分布偏移，
+//      使模型对不同光照条件的图片有更好的泛化能力
+//
+// 批处理归一化 vs 输入归一化：
+//   本节点执行的是"输入归一化"（Input Normalization），
+//   将原始像素值映射到标准正态分布附近。
+//   这与模型内部的 BatchNorm/LayerNorm 不同：
+//   - 输入归一化：预处理阶段，固定参数（ImageNet 统计量），不参与训练
+//   - BatchNorm：模型内部，可学习参数，训练中动态更新
 // ============================================================
 #include "preprocess/normalize_node.h"
 
@@ -53,6 +70,12 @@ Status NormalizeNode::Process(const std::vector<Frame>& inputs,
         // 其中 mean = [0.485, 0.456, 0.406]（ImageNet 数据集各通道均值）
         //      std  = [0.229, 0.224, 0.225]（ImageNet 数据集各通道标准差）
         //
+        // 为什么使用 ImageNet 的均值/标准差？
+        //   大多数视觉预训练模型（ResNet、VGG、EfficientNet 等）都在
+        //   ImageNet 上预训练，其预处理参数与训练数据一致。
+        //   如果使用非 ImageNet 均值，输入分布与预训练时的分布不匹配，
+        //   可能导致模型性能严重下降（特征提取器认为输入是"异常"数据）。
+        //
         // 为什么需要标准化：
         //   1. 数值稳定性：将输入分布拉到 N(0,1) 附近，避免激活函数饱和区
         //      （如 sigmoid 在 |x|>5 时梯度几乎为 0）
@@ -74,6 +97,8 @@ Status NormalizeNode::Process(const std::vector<Frame>& inputs,
         //
         //   更严谨的做法是 cv::extractChannel + cv::divide + cv::insertChannel，
         //   但对于非连续情况，当前方法需要确保结果正确性。
+        //   性能对比：in-place 方法无需分配临时内存（约 3×H×W×4 字节），
+        //   在大图（4K 分辨率）下可节省数十 MB 内存分配开销。
         for (int i = 0; i < img.channels(); ++i) {
             cv::Mat channel(out.image.size(), CV_32FC1,
                             out.image.ptr<float>(0) + i * out.image.cols * out.image.rows);

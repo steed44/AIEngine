@@ -1,4 +1,4 @@
-// ============================================================
+﻿// ============================================================
 // pipeline_builder.cpp — 管线构建器
 // 根据 PipelineConfig 创建完整的处理器拓扑图。
 // 新增节点类型时在 Build() 的 switch 中添加分支即可。
@@ -23,6 +23,33 @@
 
 namespace aicore {
 
+namespace {
+
+// ============================================================
+// 简单节点工厂（除 model 外所有类型）
+// 通过 constexpr map 将类型名 → creator lambda，避免 if-else 链膨胀。
+// 新增简单节点类型时在此 map 加一行即可。
+// ============================================================
+std::shared_ptr<IProcessor> CreateSimpleNode(const std::string& type) {
+    static const std::unordered_map<std::string,
+                                     std::shared_ptr<IProcessor>(*)()> kFactories = {
+        {"resize",      []() -> std::shared_ptr<IProcessor> { return std::make_shared<ResizeNode>(); }},
+        {"normalize",   []() -> std::shared_ptr<IProcessor> { return std::make_shared<NormalizeNode>(); }},
+        {"letterbox",   []() -> std::shared_ptr<IProcessor> { return std::make_shared<LetterboxNode>(); }},
+        {"yolo_decode", []() -> std::shared_ptr<IProcessor> { return std::make_shared<YoloDecodeNode>(); }},
+        {"nms",         []() -> std::shared_ptr<IProcessor> { return std::make_shared<NmsNode>(); }},
+        {"merge",       []() -> std::shared_ptr<IProcessor> { return std::make_shared<MergeNode>(); }},
+        {"composite",   []() -> std::shared_ptr<IProcessor> { return std::make_shared<CompositeNode>(); }},
+        {"patchcore",   []() -> std::shared_ptr<IProcessor> { return std::make_shared<PatchCoreNode>(); }},
+        {"multi_roi",   []() -> std::shared_ptr<IProcessor> { return std::make_shared<MultiRoiNode>(); }},
+        {"fusion",      []() -> std::shared_ptr<IProcessor> { return std::make_shared<FusionNode>(); }},
+    };
+    auto it = kFactories.find(type);
+    return it != kFactories.end() ? it->second() : nullptr;
+}
+
+} // namespace
+
 /**
  * 从配置构建完整管线
  * 遍历 config.nodes 创建节点，遍历 config.edges 建立有向连接。
@@ -36,6 +63,8 @@ Status PipelineBuilder::Build(const PipelineConfig& config,
     impl->SetThreadPool(threadPool);
 
     // 阶段一：按节点类型创建所有处理器
+    // model 节点有 Backend 创建/Load 特殊逻辑，单独处理。
+    // 其余节点统一走 CreateSimpleNode 工厂 map。
     for (auto& pc : config.nodes) {
         std::shared_ptr<IProcessor> processor;
 
@@ -52,29 +81,11 @@ Status PipelineBuilder::Build(const PipelineConfig& config,
             Status s = backend->Load(info);
             if (!s) return s;
             processor = std::make_shared<ModelNode>(std::move(backend));
-        } else if (pc.type == "resize") {
-            processor = std::make_shared<ResizeNode>();
-        } else if (pc.type == "normalize") {
-            processor = std::make_shared<NormalizeNode>();
-        } else if (pc.type == "letterbox") {
-            processor = std::make_shared<LetterboxNode>();
-        } else if (pc.type == "yolo_decode") {
-            processor = std::make_shared<YoloDecodeNode>();
-        } else if (pc.type == "nms") {
-            processor = std::make_shared<NmsNode>();
-        } else if (pc.type == "merge") {
-            processor = std::make_shared<MergeNode>();
-        } else if (pc.type == "composite") {
-            processor = std::make_shared<CompositeNode>();
-        } else if (pc.type == "patchcore") {
-            processor = std::make_shared<PatchCoreNode>();
-        } else if (pc.type == "multi_roi") {
-            processor = std::make_shared<MultiRoiNode>();
-        } else if (pc.type == "fusion") {
-            processor = std::make_shared<FusionNode>();
         } else {
-            return Status{StatusCode::ErrorConfigParse,
-                          "unknown node type: " + pc.type};
+            processor = CreateSimpleNode(pc.type);
+            if (!processor)
+                return Status{StatusCode::ErrorConfigParse,
+                              "unknown node type: " + pc.type};
         }
 
         Status s = processor->Init(pc.params);
@@ -93,7 +104,5 @@ Status PipelineBuilder::Build(const PipelineConfig& config,
     pipeline = std::move(impl);
     return Status{};
 }
-
-
 
 } // namespace aicore

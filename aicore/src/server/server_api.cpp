@@ -1,3 +1,8 @@
+// 服务器 C API 实现 — 封装 InferenceServer 为 C 风格接口供外部调用
+//
+// 设计：薄包装层，将 C++ 异常和 Status 转换为 C 返回码 + errorOut 字符串。
+//   aicore_server_load/infer → InferenceServer 的方法调用。
+//   参数校验在入口处完成，空指针和非法参数提前返回 -1。
 #include "server/server_api.h"
 #include "server/inference_server.h"
 #include "core/types.h"
@@ -6,6 +11,8 @@
 
 using namespace aicore;
 
+// 加载模型到推理服务器
+// 参数校验 → 委托 InferenceServer::LoadModel → 返回 0(成功)/-1(失败)
 int aicore_server_load(const char* modelName, const char* modelPath,
                         const char* backend, int vramMB) {
     if (!modelName || !modelPath || !backend) return -1;
@@ -22,6 +29,8 @@ int aicore_server_unload(const char* modelName) {
     return 0;
 }
 
+// 推理服务器同步推理入口
+// 将原始像素数据包装为 cv::Mat → InferSync → 结果包装为 AICoreResult
 int aicore_server_infer(const char* modelName,
                          const unsigned char* data,
                          int w, int h, int c,
@@ -55,6 +64,8 @@ int aicore_server_infer(const char* modelName,
     return 0;
 }
 
+// 列出服务器中所有已加载模型的 JSON 字符串
+// 结果缓存在 server_list_cache 中，下次调用自动释放旧缓存
 static char* server_list_cache = nullptr;
 
 const char* aicore_server_list() {

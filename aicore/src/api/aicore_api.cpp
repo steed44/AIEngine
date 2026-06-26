@@ -1,6 +1,19 @@
 // ============================================================
 // aicore_api.cpp — AIEngine C 公共 API 实现
 // 提供 C 语言接口供外部调用，包含管线创建/执行/销毁和结果序列化
+//
+// C API 包装设计：
+//   1. 不透明句柄模式：C++ 对象指针（IPipeline / Result）通过 reinterpret_cast
+//      转为 void* 句柄，外部仅通过不透明句柄操作。隐藏所有 C++ 实现细节。
+//
+//   2. 错误处理：C++ Status 中的错误码和信息通过 StoreError() 写入静态
+//      std::string，返回 const char* 指针。保证指针在调用者处理期间有效。
+//      不跨线程使用（C API 通常是单线程调用）。
+//
+//   3. 内存管理：aicore_pipeline_create 返回 new 创建的 IPipeline，
+//      调用者负责通过 aicore_pipeline_destroy 销毁。
+//      aicore_pipeline_execute 返回 new 创建的 Result，调用者通过
+//      aicore_result_free 释放。
 // ============================================================
 
 #include "api/aicore_api.h"
@@ -40,6 +53,7 @@ using namespace aicore;
 
 /**
  * 返回当前 AIEngine 核心库的版本号
+ * 版本语义：MAJOR.MINOR.PATCH，遵循语义化版本规范
  * @return "0.1.0" 版本字符串
  */
 const char* aicore_version() {
@@ -49,6 +63,11 @@ const char* aicore_version() {
 /**
  * 根据 JSON 配置字符串创建一条推理管线
  * 内部依次：解析 JSON → 构建管线拓扑 → 返回不透明句柄
+ *
+ * 内存管理：
+ *   new 创建 IPipeline 对象，返回 void* 不透明句柄。
+ *   调用方使用完后必须通过 aicore_pipeline_destroy 释放。
+ *
  * @param configJson JSON 格式的管线配置字符串
  * @param errorOut   输出参数，失败时返回错误描述，可传入 nullptr
  * @return 成功返回管线句柄（AICorePipeline），失败返回 nullptr
@@ -60,6 +79,7 @@ AICorePipeline aicore_pipeline_create(const char* configJson,
         return nullptr;
     }
 
+    // Phase 1: 解析 JSON 配置
     ConfigParser parser;
     PipelineConfig config;
     auto s = parser.Parse(configJson, config);
@@ -68,6 +88,7 @@ AICorePipeline aicore_pipeline_create(const char* configJson,
         return nullptr;
     }
 
+    // Phase 2: PipelineBuilder 按配置创建 DAG 拓扑
     PipelineBuilder builder;
     std::unique_ptr<IPipeline> pipeline;
     s = builder.Build(config, pipeline);
@@ -76,12 +97,17 @@ AICorePipeline aicore_pipeline_create(const char* configJson,
         return nullptr;
     }
 
+    // 移交所有权给调用方，后续通过句柄操作
     return static_cast<AICorePipeline>(pipeline.release());
 }
 
 /**
  * 执行管线推理
  * 将输入图像数据包装为 cv::Mat，送入管线执行，结果通过 resultOut 返回
+ *
+ * 注意：imageData 的像素排列假设为行优先连续存储。
+ * OpenCV 使用 BGR 通道顺序，若调用方提供 RGB 数据需要事先转换。
+ *
  * @param pipeline  管线句柄（由 aicore_pipeline_create 创建）
  * @param imageData 原始图像像素数据指针（RGB/BGR/灰度）
  * @param width     图像宽度（像素）

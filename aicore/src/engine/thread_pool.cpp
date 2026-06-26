@@ -33,6 +33,12 @@ ThreadPool::ThreadPool(size_t numThreads) {
     //   - 其他线程无法取任务（串行化，退化回单线程）
     //   - 任务中的耗时操作（如模型推理）会阻塞任务分发
     //   这种"取出即释放"的设计是线程池的标准实践。
+    //
+    // 同步机制：
+    //   mutex_ + cv_ (condition_variable) 实现生产者-消费者模型。
+    //   工作线程在 cv_.wait() 上阻塞，Enqueue 时 notify_one 唤醒一个线程。
+    //   这种唤醒策略比 notify_all 更高效（避免"惊群效应"）。
+    //
     // 创建 numThreads 个工作线程，每个线程循环等待任务
     for (size_t i = 0; i < numThreads; ++i) {
         workers_.emplace_back([this] {
@@ -73,6 +79,7 @@ ThreadPool::~ThreadPool() {
 /**
  * 等待所有已提交的任务执行完毕
  * 当任务队列为空且活跃计数为 0 时返回
+ * 注意：WaitAll 期间如果有其他线程 Enqueue，也会等待这些新任务
  */
 void ThreadPool::WaitAll() {
     // ---- WaitAll 等待机制 ----

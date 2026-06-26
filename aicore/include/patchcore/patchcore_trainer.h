@@ -43,6 +43,11 @@ public:
     // @param modelPath  backbone 模型文件路径
     // @param outputPath MemoryBank 输出路径（.bin 文件）
     // @param cfg        训练配置参数
+    // 前置条件：dataset 非空，modelPath 有效，outputPath 所在目录可写
+    // 后置条件：成功时 outputPath 文件包含序列化的 MemoryBank
+    // 训练流程：遍历 dataset → Extract 每张图 → 收集 PatchFeature →
+    //   随机降采样（超限时）→ Coreset 采样 → Build MemoryBank → Save
+    // 进度回调：cfg.onProgress(current, total, status) 每秒触发一次
     Status Train(IDataset& dataset, const std::string& modelPath,
                  const std::string& outputPath,
                  const PatchCoreTrainConfig& cfg);
@@ -51,6 +56,7 @@ public:
     // @param modelPath  backbone 模型文件路径
     // @param outputPath MemoryBank 输出路径（.bin 文件）
     // @param cfg        训练配置参数
+    // 内部创建 FolderDataset 后调用 Train()
     Status TrainFromFolder(const std::string& folderPath,
                            const std::string& modelPath,
                            const std::string& outputPath,

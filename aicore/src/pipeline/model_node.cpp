@@ -55,10 +55,17 @@ Status ModelNode::Process(const std::vector<Frame>& inputs,
         t.bytes = frame.image.total() * frame.image.elemSize();
         inTensors.push_back(t);
 
+        // 调用后端推理引擎执行前向传播
+        // outTensors 的语义取决于后端：
+        //   TensorRT → 解析网络输出（检测框/分类/特征）
+        //   ONNX     → 同 TensorRT
+        //   LibTorch → 通过 forward() 返回的 tensor 列表
         std::vector<Tensor> outTensors;
         auto s = backend_->Infer(inTensors, outTensors);
         if (!s) return s;
 
+        // 将原始输出 tensor 暂存到 Frame，供下游后处理节点使用
+        // 后续的 NmsNode/PostProcessNode 会解析这些 tensor
         Frame out = frame;
         out.rawOutputs = std::move(outTensors);
         outputs.push_back(std::move(out));

@@ -1,5 +1,16 @@
 // AI 引擎单例 — 顶层推理入口
 // 管理 pipeline 生命周期、线程安全执行和资源池
+//
+// 设计模式：单例（Meyer's Singleton）
+//   - GetInstance() 返回 static 局部变量，C++11 保证线程安全初始化
+//
+// 线程安全：
+//   - Init/Execute/Shutdown 均持有 mutex_ 互斥锁
+//   - 所有公开方法互斥，同一时刻仅允许一个操作
+//
+// 资源生命周期：
+//   pipeline_   ← unique_ptr，随 Init/Shutdown 创建销毁
+//   enginePool_ ← shared_ptr，可被 PipelineImpl 共享持有
 #pragma once
 #include "core/pipeline.h"
 #include "core/frame.h"

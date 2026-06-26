@@ -1,4 +1,11 @@
 // 模型推理节点 — 封装 IModelBackend 作为流水线处理步骤
+//
+// 工作流程：
+//   输入帧 → 包装为 NCHW Tensor → backend_->Infer → 输出 Tensor
+//  ，
+// 后端抽象：
+//   IModelBackend 接口统一 ONNX Runtime / TensorRT / LibTorch 三种后端。
+//   具体实现在 BackendFactory::Create() 中按 backendType 创建。
 #pragma once
 #include "core/processor.h"
 #include "core/model_backend.h"
@@ -15,7 +22,7 @@ public:
                    std::vector<Frame>& outputs) override;
     std::string GetName() const override;
     std::string GetType() const override;
-    // 获取底层的模型后端实例
+    // 获取底层的模型后端实例（可用于手动控制后端生命周期）
     std::shared_ptr<IModelBackend> GetBackend() const { return backend_; }
 
 private:

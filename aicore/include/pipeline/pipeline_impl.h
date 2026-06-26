@@ -1,4 +1,17 @@
 // Pipeline 实现 — 基于 DAG 拓扑的推理流水线引擎
+//
+// DAG（有向无环图）执行引擎：
+//   节点 = 处理步骤（模型推理/预处理/后处理）
+//   边   = 数据依赖关系（上游输出 → 下游输入）
+//
+// 调度策略（轮询推进 + 并行）：
+//   每轮扫描所有未处理节点，收集输入就绪节点；
+//   就绪节点 > 1 时通过 ThreadPool 并发执行，
+//   否则退化串行。
+//
+// 对比传统 Kahn 拓扑排序：
+//   Kahn 需要预计算入度，不支持运行时动态跳过。
+//   轮询推进天然支持节点返回值 Skip，但每轮 O(V+E)。
 #pragma once
 #include "core/pipeline.h"
 #include "core/processor.h"
@@ -55,14 +68,14 @@ private:
                        std::map<std::string, NodeMetric>& metrics,
                        uint64_t timestamp,
                        std::mutex* outputsMutex = nullptr);
-    std::unordered_map<std::string, DagNode> nodes_;     // 所有 DAG 节点
-    std::vector<std::string> entryNodes_;                  // 入口节点（无上游依赖）
-    std::vector<std::string> exitNodes_;                   // 出口节点（无下游依赖）
-    std::shared_ptr<ThreadPool> threadPool_;               // 线程池
-    std::shared_ptr<EnginePool> enginePool_;               // 引擎池
-    PipelineState state_ = PipelineState::kCreated;        // 生命周期状态
-    std::string configJson_;                               // 原始 JSON 配置
-    mutable std::mutex mutex_;                             // 线程安全锁
+    std::unordered_map<std::string, DagNode> nodes_;     // 所有 DAG 节点（id→DagNode）
+    std::vector<std::string> entryNodes_;                  // 入口节点（无上游依赖，执行起点）
+    std::vector<std::string> exitNodes_;                   // 出口节点（无下游依赖，结果汇聚点）
+    std::shared_ptr<ThreadPool> threadPool_;               // 线程池（并行执行就绪节点）
+    std::shared_ptr<EnginePool> enginePool_;               // 引擎池（复用模型后端实例）
+    PipelineState state_ = PipelineState::kCreated;        // 生命周期状态（Created→Ready→Running→Stopped）
+    std::string configJson_;                               // 原始 JSON 配置（用于序列化和调试）
+    mutable std::mutex mutex_;                             // 线程安全锁（保护 state_ 读写）
 };
 
 } // namespace aicore

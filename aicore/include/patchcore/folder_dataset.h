@@ -22,6 +22,9 @@ public:
     // 加载指定文件夹中的所有图像
     // @param folderPath 图像文件夹路径
     // @return 加载成功返回 Status{}，否则返回错误状态
+    // 前置条件：folderPath 非空，路径存在且为可读目录
+    // 后置条件：成功时 samples_ 包含所有图像文件的 Sample 数据
+    // 注意：大目录（>1000 文件）时 Load 可能较慢，建议在后台线程调用
     Status Load(const std::string& folderPath) override;
     size_t Size() const override;
     Sample Get(size_t index) override;

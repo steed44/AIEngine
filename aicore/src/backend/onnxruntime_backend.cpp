@@ -189,6 +189,9 @@ public:
 #endif
     }
 
+    // 获取模型输入张量形状列表
+    // 前置条件：Load() 已成功调用
+    // 后置条件：shapes 被替换为 Load() 阶段缓存的输入形状信息
     Status GetInputShapes(std::vector<std::vector<int64_t>>& shapes) const override {
 #ifdef AICORE_USE_ONNXRUNTIME
         if (!loaded_) return Status{StatusCode::ErrorModelLoad, "not loaded"};
@@ -200,6 +203,9 @@ public:
 #endif
     }
 
+    // 获取模型输出张量形状列表
+    // 前置条件：Load() 已成功调用
+    // 后置条件：shapes 被替换为 Load() 阶段缓存的输出形状信息
     Status GetOutputShapes(std::vector<std::vector<int64_t>>& shapes) const override {
 #ifdef AICORE_USE_ONNXRUNTIME
         if (!loaded_) return Status{StatusCode::ErrorModelLoad, "not loaded"};
@@ -216,16 +222,16 @@ public:
     bool IsLoaded() const override { return loaded_; }
 
 private:
-    std::string modelPath_;
-    int deviceId_ = 0;
-    bool loaded_ = false;
+    std::string modelPath_;                     // 模型文件路径（.onnx）
+    int deviceId_ = 0;                          // 推理设备 ID（-1=CPU, 0+=GPU）
+    bool loaded_ = false;                       // 模型加载状态标志
 #ifdef AICORE_USE_ONNXRUNTIME
-    std::shared_ptr<Ort::Env> env_;
-    std::shared_ptr<Ort::Session> session_;
-    std::vector<std::string> inputNames_;
-    std::vector<std::string> outputNames_;
-    std::vector<std::vector<int64_t>> inputShapes_;
-    std::vector<std::vector<int64_t>> outputShapes_;
+    std::shared_ptr<Ort::Env> env_;             // ONNX Runtime 全局环境（日志级别 WARNING）
+    std::shared_ptr<Ort::Session> session_;     // ONNX Runtime 会话实例
+    std::vector<std::string> inputNames_;       // 输入节点名称列表（用于 Run() 调用）
+    std::vector<std::string> outputNames_;      // 输出节点名称列表
+    std::vector<std::vector<int64_t>> inputShapes_;   // 输入张量形状缓存
+    std::vector<std::vector<int64_t>> outputShapes_;  // 输出张量形状缓存
 #endif
 };
 

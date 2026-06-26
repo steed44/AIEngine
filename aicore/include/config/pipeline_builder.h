@@ -1,5 +1,18 @@
 // pipeline 构建器
 // 根据配置描述创建完整的 IPipeline 实例，组装处理器节点并建立连接
+//
+// 设计模式：工厂方法（Factory Method）
+//   PipelineBuilder::Build() 根据 ProcessorConfig::type 字符串，
+//   通过 if-else 链创建对应的 IProcessor 子类实例。
+//   这种设计使得新增节点类型只需在 builder 中添加一个分支，
+//   无需修改其他代码。
+//
+// 构建流程：
+//   ConfigParser::Parse(json) → PipelineConfig
+//   → PipelineBuilder::Build(config) → IPipeline
+//     → for each node: 根据 type 创建 IProcessor → Init(config)
+//     → for each edge: 连接源节点输出到目标节点输入
+//     → 用 EnginePool 管理模型后端实例（可选）
 #pragma once
 #include "core/processor.h"
 #include "core/pipeline.h"

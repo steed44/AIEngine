@@ -218,8 +218,8 @@ public:
     int GetDeviceId() const override { return deviceId_; }
     bool IsLoaded() const override { return loaded_; }
 protected:
-    int deviceId_ = 0;
-    bool loaded_ = false;
+    int deviceId_ = 0;      // GPU 设备 ID（仅记录，Stub 不使用）
+    bool loaded_ = false;   // 模型加载标志（Stub 中 Load 始终返回成功）
 };
 
 // ============================================================

@@ -39,13 +39,13 @@ Status EnginePool::Acquire(const std::string& modelId, const ModelInfo& info,
                            std::shared_ptr<IModelBackend>& engine) {
     std::lock_guard<std::mutex> lock(mutex_);
     auto& entry = pools_[modelId];
-    // 优先复用空闲引擎
+    // 优先复用空闲引擎（从池尾取，避免 vector 移位成本）
     if (!entry.free.empty()) {
         engine = entry.free.back();
         entry.free.pop_back();
         return Status{};
     }
-    // 无空闲引擎时创建新的
+    // 无空闲引擎时创建新的（首次加载或池中实例全部被占用）
     auto newEngine = BackendFactory::Create(info.backend);
     if (!newEngine)
         return Status{StatusCode::ErrorInternal, "Failed to create backend"};
@@ -57,6 +57,7 @@ Status EnginePool::Acquire(const std::string& modelId, const ModelInfo& info,
 
 /**
  * 将引擎实例归还到池中
+ * 归还后引擎重新变为空闲状态，可被其他 Acquire 调用复用
  * 若该模型的缓存已达上限则丢弃（不报错，仅返回资源耗尽状态）
  * @param modelId 模型唯一标识
  * @param engine  待归还的引擎共享指针
@@ -66,6 +67,8 @@ Status EnginePool::Release(const std::string& modelId,
                            std::shared_ptr<IModelBackend> engine) {
     std::lock_guard<std::mutex> lock(mutex_);
     auto& entry = pools_[modelId];
+    // 池满时丢弃引擎实例（不阻塞，不等待）
+    // 调用方可忽略此状态码，推理仍可正常进行
     if (entry.free.size() >= maxEngines_) {
         return Status{StatusCode::ErrorResourceExhaust, "Engine pool full"};
     }

@@ -29,11 +29,14 @@ Status CompositeNode::Process(const std::vector<Frame>& inputs,
         return Status{StatusCode::ErrorInvalidInput, "no input frames"};
 
     // 逐帧执行内部流水线，将子结果合并到总结果中
+    // 子流水线内部可能包含多层 DAG 节点（递归嵌套）
     Result result;
     for (const auto& frame : inputs) {
         Result r;
+        // 逐帧推理：子流水线内部有自己的 DAG 拓扑和执行器
         auto s = innerPipeline_->Execute(frame, r);
         if (!s) return s;
+        // 合并检测结果和延迟指标
         for (auto& d : r.detections)
             result.detections.push_back(std::move(d));
         result.totalLatencyMs += r.totalLatencyMs;

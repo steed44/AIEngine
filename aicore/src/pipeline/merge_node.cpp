@@ -26,6 +26,8 @@ Status MergeNode::Init(const NodeConfig& config) {
  * @param inputs  上游所有输入帧的汇集
  * @param outputs [out] 与 inputs 相同的帧列表
  */
+// 执行合并操作：校验输入数量后直接透传
+// 不执行任何帧级数据操作，仅做输入数量安全校验
 Status MergeNode::Process(const std::vector<Frame>& inputs,
                           std::vector<Frame>& outputs) {
     if (maxInputs_ > 0 && static_cast<int>(inputs.size()) > maxInputs_)
