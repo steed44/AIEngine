@@ -12,6 +12,7 @@
 #include "preprocess/resize_node.h"
 #include "preprocess/normalize_node.h"
 #include "postprocess/nms_node.h"
+#include "pipeline/fusion_node.h"
 #include "preprocess/letterbox_node.h"
 #include "postprocess/yolo_decode_node.h"
 #include "patchcore/patchcore_node.h"
@@ -69,6 +70,8 @@ Status PipelineBuilder::Build(const PipelineConfig& config,
             processor = std::make_shared<PatchCoreNode>();
         } else if (pc.type == "multi_roi") {
             processor = std::make_shared<MultiRoiNode>();
+        } else if (pc.type == "fusion") {
+            processor = std::make_shared<FusionNode>();
         } else {
             return Status{StatusCode::ErrorConfigParse,
                           "unknown node type: " + pc.type};
